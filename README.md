@@ -26,3 +26,4 @@ O navegador usa o WebSocket do Tibia Stalker enquanto o painel está aberto. Par
 Tibia Stalker fornece online realtime e sugestões de possíveis outros chars. TibiaData fornece dados públicos complementares. TibiaRing/GuildStats podem ser adicionados como adapters independentes.
 
 Sugestões de relacionamento são evidências probabilísticas, nunca fatos automáticos.
+
