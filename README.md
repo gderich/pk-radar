@@ -16,6 +16,7 @@ Painel independente para monitoramento de personagens de Tibia. O projeto não d
 5. npm install
 6. npm run dev ou npm run build.
 
+
 ## Deploy
 Pode hospedar como SPA em Vercel, Netlify, Cloudflare Pages ou outro servidor estático com fallback para index.html. Configure as variáveis VITE_* no ambiente de build.
 
