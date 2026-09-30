@@ -79,3 +79,4 @@ on conflict(source) do nothing;
 create index if not exists characters_online_idx on characters(monitored,archived,online);
 create index if not exists online_events_time_idx on online_events(occurred_at desc);
 \ncreate index if not exists stalker_suggestions_character_score_idx on stalker_suggestions(character_id,relative_score desc,match_count desc);\n
+create unique index if not exists relation_evidence_unique_signal on relation_evidence(relation_id,evidence_type,source);
