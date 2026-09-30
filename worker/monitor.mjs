@@ -1,8 +1,8 @@
 import {createClient} from "@supabase/supabase-js";
 const URL=process.env.SUPABASE_URL;const KEY=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!URL||!KEY)throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-const db=createClient(URL,KEY,{auth:{persistSession:false}});const {syncPublicSources}=await import("./sources.mjs");const {rebuildAutomaticIdentities}=await import("./identity.mjs");const WS_URL=process.env.TIBIA_STALKER_WS||"wss://api.tibiastalker.pl/connection-hub";const API_URL="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
+const db=createClient(URL,KEY,{auth:{persistSession:false}});const {syncPublicSources}=await import("./sources.mjs");const {rebuildAutomaticIdentities}=await import("./identity.mjs");const {PK_SEED_SET,discoveryDepth,discoveryRule}=await import("./seeds.mjs");const WS_URL=process.env.TIBIA_STALKER_WS||"wss://api.tibiastalker.pl/connection-hub";const API_URL="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
 let socket=null;let subscribed=new Set();let deepCounter=0;let reconnectTimer=null;let reconnectAttempt=0;
-async function chars(){const {data,error}=await db.from("characters").select("id,name,online,worlds(name)").eq("archived",false).eq("monitored",true).order("name");if(error)throw error;return (data??[]).map(x=>({...x,world_name:x.worlds?.name??null})).filter(x=>x.world_name==="Jadebra")}
+async function chars(){const {data,error}=await db.from("characters").select("id,name,online,tags,worlds(name)").eq("archived",false).eq("monitored",true).order("name");if(error)throw error;return (data??[]).map(x=>({...x,world_name:x.worlds?.name??null})).filter(x=>x.world_name==="Jadebra"&&(PK_SEED_SET.has(String(x.name).toLowerCase())||(x.tags??[]).includes("PK_SEED")||(x.tags??[]).includes("AUTO_DISCOVERED")))}
 async function ensureSession(characterId,kind,at){if(kind==="LOGIN"){await db.from("character_sessions").upsert({character_id:characterId,login_at:at,source:"TIBIA_STALKER",dedupe_key:"session:"+characterId+":"+at},{onConflict:"dedupe_key"});return}const {data:s}=await db.from("character_sessions").select("id,login_at").eq("character_id",characterId).is("logout_at",null).order("login_at",{ascending:false}).limit(1).maybeSingle();if(s){const duration=Math.max(0,Math.round((new Date(at)-new Date(s.login_at))/60000));await db.from("character_sessions").update({logout_at:at,duration_minutes:duration}).eq("id",s.id)}}
 async function massLogin(at){const since=new Date(new Date(at).getTime()-5*60*1000).toISOString();const recent=(await db.from("online_events").select("character_id,occurred_at,characters(name)").eq("kind","LOGIN").gte("occurred_at",since).order("occurred_at")).data??[];const byId=new Map();for(const x of recent)if(x.character_id)byId.set(x.character_id,x.characters?.name||x.character_id);if(byId.size<3)return;const bucket=Math.floor(new Date(at).getTime()/300000);const names=[...byId.values()];await db.from("alerts").upsert({title:"MASS LOG DETECTADO",body:names.length+" personagens monitorados entraram em até 5 minutos: "+names.join(", "),triggered_at:at,dedupe_key:"mass-login:"+bucket,metadata:{count:names.length,windowMinutes:5,names}},{onConflict:"dedupe_key"});await db.from("online_events").upsert({kind:"MASS_LOGIN",occurred_at:at,source:"TIBIA_STALKER",confidence:"HIGH",dedupe_key:"mass-login-event:"+bucket,metadata:{count:names.length,windowMinutes:5,names}},{onConflict:"dedupe_key"})}
 async function inferSwap(characterId,at){const since=new Date(new Date(at).getTime()-90*1000).toISOString();const prev=(await db.from("online_events").select("character_id,occurred_at,characters(name)").eq("kind","LOGOUT").neq("character_id",characterId).gte("occurred_at",since).order("occurred_at",{ascending:false}).limit(4)).data??[];for(const p of prev){if(!p.character_id)continue;const ids=[characterId,p.character_id].sort();const {data:rel}=await db.from("player_relations").select("id,status,confidence_score").eq("character_a_id",ids[0]).eq("character_b_id",ids[1]).maybeSingle();if(rel?.status==="CONFIRMED"||rel?.status==="REJECTED")continue;let relationId=rel?.id;let score=Math.min(70,Number(rel?.confidence_score||0)+15);if(!relationId){const ins=await db.from("player_relations").insert({character_a_id:ids[0],character_b_id:ids[1],status:"MEDIUM",confidence_score:score,manual_note:"Possível troca rápida entre personagens; requer revisão"}).select("id").single();relationId=ins.data?.id}else await db.from("player_relations").update({status:score>=45?"HIGH":"MEDIUM",confidence_score:score}).eq("id",relationId);if(relationId)await db.from("relation_evidence").insert({relation_id:relationId,source:"TIBIA_STALKER",evidence_type:"FAST_SWAP",summary:"Logout de "+(p.characters?.name||"outro char")+" seguido de login em até 90s",weight:15,raw_data:{logoutAt:p.occurred_at,loginAt:at}})}}
@@ -30,13 +30,22 @@ async function syncStalkerSuggestions(list){
           last_match_date:toDateOnly(x.lastMatchDateOnly),
           relative_score:score,fetched_at:new Date().toISOString(),raw_data:x
         },{onConflict:"character_id,suggested_name"});
-        let {data:other}=await db.from("characters").select("id").ilike("name",name).maybeSingle();
-        if(!other&&score>=80&&matches>=10&&autoAdded<2){
+        let {data:other}=await db.from("characters").select("id,tags,monitored").ilike("name",name).maybeSingle();
+        const span=x.firstMatchDateOnly&&x.lastMatchDateOnly?Math.max(0,Math.round((new Date(x.lastMatchDateOnly)-new Date(x.firstMatchDateOnly))/86400000)):0;
+        const depth=discoveryDepth(c.tags??[]);
+        if(discoveryRule(depth,score,matches,span)&&autoAdded<1){
           const total=(await db.from("characters").select("id",{count:"exact",head:true}).eq("monitored",true)).count??0;
           if(total<150&&await isJadebraCharacter(name)){
-            const {data:world}=await db.from("worlds").upsert({name:"Jadebra"},{onConflict:"name"}).select("id").single();
-            const added=await db.from("characters").insert({name,world_id:world?.id??null,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags:["AUTO_DISCOVERED"]}).select("id").single();
-            if(added.data?.id){other=added.data;autoAdded++;console.log("auto-descoberto em Jadebra",name,"a partir de",c.name,score,matches)}
+            const nextDepth=(depth??0)+1;
+            const tags=other?.tags?.includes("PK_SEED")?other.tags:[...new Set([...(other?.tags??[]).filter(t=>t!=="AUTO_NOISE"&&!String(t).startsWith("DISCOVERY_DEPTH:")),"AUTO_DISCOVERED","DISCOVERY_DEPTH:"+nextDepth])];
+            if(other?.id){
+              await db.from("characters").update({monitored:true,archived:false,tags}).eq("id",other.id);
+              autoAdded++;console.log("reativado por evidência forte",name,"a partir de",c.name,score,matches,span);
+            }else{
+              const {data:world}=await db.from("worlds").upsert({name:"Jadebra"},{onConflict:"name"}).select("id").single();
+              const added=await db.from("characters").insert({name,world_id:world?.id??null,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags}).select("id,tags").single();
+              if(added.data?.id){other=added.data;autoAdded++;console.log("auto-descoberto ancorado",name,"a partir de",c.name,score,matches,span)}
+            }
           }
         }
         if(other?.id&&other.id!==c.id){

@@ -1,13 +1,14 @@
+import {PK_SEED_SET} from "./seeds.mjs";
 function pairKey(a,b){return [a,b].sort().join(":")}
 function daysBetween(a,b){if(!a||!b)return 0;const x=new Date(a).getTime(),y=new Date(b).getTime();if(!Number.isFinite(x)||!Number.isFinite(y))return 0;return Math.max(0,Math.round(Math.abs(y-x)/86400000))}
 export async function rebuildAutomaticIdentities(db){
   const [charsRes,sugRes,relRes]=await Promise.all([
-    db.from("characters").select("id,name,monitored,worlds(name)").eq("archived",false).eq("monitored",true),
+    db.from("characters").select("id,name,monitored,tags,worlds(name)").eq("archived",false).eq("monitored",true),
     db.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date,characters(name,worlds(name))"),
     db.from("player_relations").select("character_a_id,character_b_id,status,confidence_score")
   ]);
   if(charsRes.error)throw charsRes.error;if(sugRes.error)throw sugRes.error;if(relRes.error)throw relRes.error;
-  const chars=(charsRes.data??[]).filter(c=>c.worlds?.name==="Jadebra");
+  const chars=(charsRes.data??[]).filter(c=>c.worlds?.name==="Jadebra"&&(PK_SEED_SET.has(String(c.name).toLowerCase())||(c.tags??[]).includes("PK_SEED")||(c.tags??[]).includes("AUTO_DISCOVERED")));
   const byId=new Map(chars.map(c=>[c.id,c])),byName=new Map(chars.map(c=>[String(c.name).toLowerCase(),c]));
   const directed=new Map();
   for(const s of sugRes.data??[]){const a=byId.get(s.character_id),b=byName.get(String(s.suggested_name||"").toLowerCase());if(a&&b&&a.id!==b.id)directed.set(a.id+">"+b.id,s)}

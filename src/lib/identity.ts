@@ -1,15 +1,16 @@
 import {supabase} from "./supabase";
 import {TARGET_WORLD} from "./data";
+import {PK_SEED_SET} from "./seeds";
 
 type Edge={a:string;b:string;strength:number;matches:number;kind:string};
 function pairKey(a:string,b:string){return [a,b].sort().join(":")}
 function daysBetween(a:any,b:any){if(!a||!b)return 0;const x=new Date(a).getTime(),y=new Date(b).getTime();if(!Number.isFinite(x)||!Number.isFinite(y))return 0;return Math.max(0,Math.round(Math.abs(y-x)/86400000))}
 
-export async function ensureAutonomousResetV3(){
+export async function ensureAutonomousResetV4(){
   const {data:row,error}=await supabase.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
   if(error)throw error;
   const config=(row?.config&&typeof row.config==="object")?row.config as Record<string,any>:{};
-  if(Number(config.identity_mapping_version||0)>=3)return false;
+  if(Number(config.identity_mapping_version||0)>=4)return false;
 
   await supabase.from("identity_members").delete().neq("character_id","00000000-0000-0000-0000-000000000000");
   await supabase.from("identity_groups").delete().neq("id","00000000-0000-0000-0000-000000000000");
@@ -17,7 +18,16 @@ export async function ensureAutonomousResetV3(){
   await supabase.from("character_associations").delete().neq("character_a_id","00000000-0000-0000-0000-000000000000");
   await supabase.from("stalker_suggestions").delete().neq("id","00000000-0000-0000-0000-000000000000");
 
-  const nextConfig={...config,identity_mapping_version:3,identity_mapping_reset_at:new Date().toISOString()};
+  const {data:allChars,error:charError}=await supabase.from("characters").select("id,name,tags,worlds(name)").eq("archived",false);
+  if(charError)throw charError;
+  const updates=(allChars??[]).map((ch:any)=>{
+    const seed=PK_SEED_SET.has(String(ch.name).toLowerCase());
+    const tags=seed?[...new Set([...(ch.tags??[]).filter((t:string)=>!t.startsWith("DISCOVERY_DEPTH:")&&t!=="AUTO_DISCOVERED"&&t!=="AUTO_NOISE"),"PK_SEED"])]:[...(ch.tags??[]).filter((t:string)=>t!=="PK_SEED"&&!t.startsWith("DISCOVERY_DEPTH:")),"AUTO_NOISE"];
+    return {id:ch.id,name:ch.name,tags,monitored:seed,archived:false,confidence:"LOW"};
+  });
+  if(updates.length){const u=await supabase.from("characters").upsert(updates,{onConflict:"id"});if(u.error)throw u.error}
+
+  const nextConfig={...config,identity_mapping_version:4,identity_mapping_reset_at:new Date().toISOString(),mapping_anchor:"PK_SEEDS"};
   if(row?.id){
     const {error:updateError}=await supabase.from("source_syncs").update({config:nextConfig}).eq("id",row.id);
     if(updateError)throw updateError;
@@ -30,7 +40,7 @@ export async function ensureAutonomousResetV3(){
 
 export async function rebuildAutomaticIdentities(){
   const [charsRes,sugRes,relRes]=await Promise.all([
-    supabase.from("characters").select("id,name,monitored,worlds(name)").eq("archived",false).eq("monitored",true),
+    supabase.from("characters").select("id,name,monitored,tags,worlds(name)").eq("archived",false).eq("monitored",true),
     supabase.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date,characters(name,worlds(name))"),
     supabase.from("player_relations").select("character_a_id,character_b_id,status,confidence_score")
   ]);
@@ -38,7 +48,7 @@ export async function rebuildAutomaticIdentities(){
   if(sugRes.error)throw sugRes.error;
   if(relRes.error)throw relRes.error;
 
-  const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD);
+  const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD&&(PK_SEED_SET.has(String(c.name).toLowerCase())||(c.tags??[]).includes("PK_SEED")||(c.tags??[]).includes("AUTO_DISCOVERED")));
   const byId=new Map(chars.map((c:any)=>[c.id,c]));
   const byName=new Map(chars.map((c:any)=>[String(c.name).toLowerCase(),c]));
   const directed=new Map<string,any>();
