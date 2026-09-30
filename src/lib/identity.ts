@@ -17,9 +17,13 @@ export async function ensureAutonomousResetV3(){
   await supabase.from("character_associations").delete().neq("character_a_id","00000000-0000-0000-0000-000000000000");
   await supabase.from("stalker_suggestions").delete().neq("id","00000000-0000-0000-0000-000000000000");
 
+  const nextConfig={...config,identity_mapping_version:3,identity_mapping_reset_at:new Date().toISOString()};
   if(row?.id){
-    const {error:updateError}=await supabase.from("source_syncs").update({config:{...config,identity_mapping_version:3,identity_mapping_reset_at:new Date().toISOString()}}).eq("id",row.id);
+    const {error:updateError}=await supabase.from("source_syncs").update({config:nextConfig}).eq("id",row.id);
     if(updateError)throw updateError;
+  }else{
+    const {error:insertError}=await supabase.from("source_syncs").upsert({source:"MANUAL",enabled:true,status:"SUCCESS",config:nextConfig},{onConflict:"source"});
+    if(insertError)throw insertError;
   }
   return true;
 }
