@@ -5,6 +5,25 @@ type Edge={a:string;b:string;strength:number;matches:number;kind:string};
 function pairKey(a:string,b:string){return [a,b].sort().join(":")}
 function daysBetween(a:any,b:any){if(!a||!b)return 0;const x=new Date(a).getTime(),y=new Date(b).getTime();if(!Number.isFinite(x)||!Number.isFinite(y))return 0;return Math.max(0,Math.round(Math.abs(y-x)/86400000))}
 
+export async function ensureAutonomousResetV3(){
+  const {data:row,error}=await supabase.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
+  if(error)throw error;
+  const config=(row?.config&&typeof row.config==="object")?row.config as Record<string,any>:{};
+  if(Number(config.identity_mapping_version||0)>=3)return false;
+
+  await supabase.from("identity_members").delete().neq("character_id","00000000-0000-0000-0000-000000000000");
+  await supabase.from("identity_groups").delete().neq("id","00000000-0000-0000-0000-000000000000");
+  await supabase.from("player_relations").delete().neq("id","00000000-0000-0000-0000-000000000000");
+  await supabase.from("character_associations").delete().neq("character_a_id","00000000-0000-0000-0000-000000000000");
+  await supabase.from("stalker_suggestions").delete().neq("id","00000000-0000-0000-0000-000000000000");
+
+  if(row?.id){
+    const {error:updateError}=await supabase.from("source_syncs").update({config:{...config,identity_mapping_version:3,identity_mapping_reset_at:new Date().toISOString()}}).eq("id",row.id);
+    if(updateError)throw updateError;
+  }
+  return true;
+}
+
 export async function rebuildAutomaticIdentities(){
   const [charsRes,sugRes,relRes]=await Promise.all([
     supabase.from("characters").select("id,name,monitored,worlds(name)").eq("archived",false).eq("monitored",true),
