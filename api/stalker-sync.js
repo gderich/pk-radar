@@ -28,11 +28,19 @@ async function syncOne(db,character){
     fetched_at:new Date().toISOString(),
     raw_data:x
   })).filter(x=>x.suggested_name);
+  let persistError=null;
   if(rows.length){
     const {error}=await db.from("stalker_suggestions").upsert(rows,{onConflict:"character_id,suggested_name"});
-    if(error)throw error;
+    if(error)persistError=error.message;
   }
-  return rows;
+  let autoAdded=0;
+  for(const x of rows.filter(x=>x.relative_score>=80&&x.match_count>=10).slice(0,2)){
+    const {data:existing}=await db.from("characters").select("id").ilike("name",x.suggested_name).maybeSingle();
+    if(existing)continue;
+    const {error}=await db.from("characters").insert({name:x.suggested_name,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags:["AUTO_DISCOVERED"]});
+    if(!error)autoAdded++;
+  }
+  return {rows,persistError,autoAdded};
 }
 
 export default async function handler(req,res){
@@ -53,7 +61,7 @@ export default async function handler(req,res){
     if(error)throw error;
     const out=[];
     for(const c of chars||[]){
-      try{out.push({characterId:c.id,name:c.name,items:await syncOne(db,c)})}
+      try{const x=await syncOne(db,c);out.push({characterId:c.id,name:c.name,items:x.rows,persistError:x.persistError,autoAdded:x.autoAdded})}
       catch(e){out.push({characterId:c.id,name:c.name,error:e instanceof Error?e.message:String(e),items:[]})}
       await new Promise(r=>setTimeout(r,250));
     }
