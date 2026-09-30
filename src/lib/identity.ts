@@ -47,7 +47,8 @@ export async function rebuildAutomaticIdentities(){
   ]);
   if(charsRes.error)throw charsRes.error;
   if(sugRes.error)throw sugRes.error;
-  if(relRes.error)throw relRes.error;\n  if(deathRes.error)throw deathRes.error;
+  if(relRes.error)throw relRes.error;
+  if(deathRes.error)throw deathRes.error;
 
   const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD&&(PK_SEED_SET.has(String(c.name).toLowerCase())||(c.tags??[]).includes("PK_SEED")||(c.tags??[]).includes("AUTO_DISCOVERED")));
   const byId=new Map(chars.map((c:any)=>[c.id,c]));
@@ -65,7 +66,7 @@ export async function rebuildAutomaticIdentities(){
   const edges=new Map<string,Edge>();
   for(const r of relRes.data??[]){
     const a=byId.get((r as any).character_a_id),b=byId.get((r as any).character_b_id);
-    if(!a||!b)continue;
+    if(!a||!b||coKillPairs.has(pairKey(a.id,b.id)))continue;
     if((r as any).status==="CONFIRMED"){
       edges.set(pairKey(a.id,b.id),{a:a.id,b:b.id,strength:100,matches:999,kind:"PUBLIC_ACCOUNT"});
     }
