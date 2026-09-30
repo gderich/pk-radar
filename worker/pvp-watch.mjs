@@ -4,7 +4,7 @@ const CHAR_API="https://api.tibiadata.com/v4/character/";
 const UA="PK-Radar-Worker/5.0";
 const BATCH=12,RECENT_TTL=20*60*1000,LOOKBACK=30*60*1000,REVENGE=15*60*1000;
 let busy=false;
-function onlineNames(j){const list=j?.world?.online_players??j?.world?.players_online??j?.worlds?.players_online??j?.players_online??[];return (Array.isArray(list)?list:[]).map(x=>String(x?.name??x||"").trim()).filter(Boolean)}
+function onlineNames(j){const list=j?.world?.online_players??j?.world?.players_online??j?.worlds?.players_online??j?.players_online??[];return (Array.isArray(list)?list:[]).map(x=>String((x?.name??x)||"").trim()).filter(Boolean)}
 function deaths(j){const root=j?.character??j?.characters??j??{};return Array.isArray(root?.deaths)?root.deaths:Array.isArray(root?.data?.deaths)?root.data.deaths:[]}
 function players(list,role){return (Array.isArray(list)?list:[]).filter(x=>x?.player!==false&&x?.name).map(x=>({name:String(x.name).trim(),player:true,role,traded:Boolean(x.traded),summon:x.summon||null}))}
 function iso(v){const d=new Date(v);return Number.isFinite(d.getTime())?d.toISOString():null}
