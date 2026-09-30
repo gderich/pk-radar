@@ -39,18 +39,22 @@ export async function ensureAutonomousResetV4(){
 }
 
 export async function rebuildAutomaticIdentities(){
-  const [charsRes,sugRes,relRes]=await Promise.all([
+  const [charsRes,sugRes,relRes,deathRes]=await Promise.all([
     supabase.from("characters").select("id,name,monitored,tags,worlds(name)").eq("archived",false).eq("monitored",true),
     supabase.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date,characters(name,worlds(name))"),
-    supabase.from("player_relations").select("character_a_id,character_b_id,status,confidence_score")
+    supabase.from("player_relations").select("character_a_id,character_b_id,status,confidence_score"),
+    supabase.from("death_events").select("killers,raw_data").eq("source","TIBIARING").limit(2000)
   ]);
   if(charsRes.error)throw charsRes.error;
   if(sugRes.error)throw sugRes.error;
   if(relRes.error)throw relRes.error;
+  if(deathRes.error)throw deathRes.error;
 
   const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD&&(PK_SEED_SET.has(String(c.name).toLowerCase())||(c.tags??[]).includes("PK_SEED")||(c.tags??[]).includes("AUTO_DISCOVERED")));
   const byId=new Map(chars.map((c:any)=>[c.id,c]));
   const byName=new Map(chars.map((c:any)=>[String(c.name).toLowerCase(),c]));
+  const coKillPairs=new Set<string>();
+  for(const d of deathRes.data??[]){const names=(Array.isArray((d as any).killers)?(d as any).killers:[]).map((k:any)=>String(k?.name||k||"").toLowerCase()).filter((n:string)=>byName.has(n));for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++){const a=byName.get(names[i]),b=byName.get(names[j]);if(a&&b&&a.id!==b.id)coKillPairs.add(pairKey(a.id,b.id))}}
   const directed=new Map<string,any>();
   for(const s of sugRes.data??[]){
     const a=byId.get((s as any).character_id);
@@ -62,7 +66,7 @@ export async function rebuildAutomaticIdentities(){
   const edges=new Map<string,Edge>();
   for(const r of relRes.data??[]){
     const a=byId.get((r as any).character_a_id),b=byId.get((r as any).character_b_id);
-    if(!a||!b)continue;
+    if(!a||!b||coKillPairs.has(pairKey(a.id,b.id)))continue;
     if((r as any).status==="CONFIRMED"){
       edges.set(pairKey(a.id,b.id),{a:a.id,b:b.id,strength:100,matches:999,kind:"PUBLIC_ACCOUNT"});
     }
@@ -70,7 +74,7 @@ export async function rebuildAutomaticIdentities(){
 
   for(const a of chars){
     for(const b of chars){
-      if(a.id>=b.id)continue;
+      if(a.id>=b.id||coKillPairs.has(pairKey(a.id,b.id)))continue;
       const ab=directed.get(a.id+">"+b.id);
       const ba=directed.get(b.id+">"+a.id);
       const arr=[ab,ba].filter(Boolean);
