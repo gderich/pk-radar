@@ -47,9 +47,10 @@ export default async function handler(req,res){
   res.setHeader("Cache-Control","no-store");
   if(req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
   const url=process.env.SUPABASE_URL||process.env.VITE_SUPABASE_URL;
-  const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if(!url||!key)return res.status(500).json({error:"Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY on Vercel"});
-  const db=createClient(url,key,{auth:{persistSession:false}});
+  const key=process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.VITE_SUPABASE_ANON_KEY;
+  if(!url||!key)return res.status(500).json({error:"Supabase environment variables are missing on Vercel"});
+  const authHeader=req.headers.authorization||"";
+  const db=createClient(url,key,{auth:{persistSession:false},global:{headers:{Authorization:authHeader}}});
   const user=await authUser(req,db);
   if(!user)return res.status(401).json({error:"Unauthorized"});
   try{
