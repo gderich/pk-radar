@@ -1,9 +1,6 @@
 import {PK_SEED_SET} from "./seeds.mjs";
 function pairKey(a,b){return [a,b].sort().join(":")}
-function daysBetween(a,b){if(!a||!b)return 0;const x=new Date(a).getTime(),y=new Date(b).getTime();if(!Number.isFinite(x)||!Number.isFinite(y))return 0;return Math.max(0,Math.round(Math.abs(y-x)/86400000))}
 function overlapCount(a,b){let n=0;for(const x of a)if(b.has(x))n++;return n}
-function suggestionDominance(rows=[]){const out=new Map(),byOrigin=new Map();for(const s of rows){const id=String(s.character_id||"");if(!id)continue;const arr=byOrigin.get(id)||[];arr.push(s);byOrigin.set(id,arr)}for(const [id,arr] of byOrigin){const sorted=[...arr].sort((a,b)=>Number(b.relative_score||0)-Number(a.relative_score||0)||Number(b.match_count||0)-Number(a.match_count||0));const topScore=Number(sorted[0]?.relative_score||0),secondScore=Number(sorted[1]?.relative_score||0);sorted.forEach((s,index)=>out.set(id+">"+String(s.suggested_name||"").toLowerCase(),{rank:index+1,margin:index===0?Math.max(0,topScore-secondScore):0,topScore,secondScore}))}return out}
-
 async function reconcileClusters(db,clusters,byId,edgeList){
   const {data:existingRows,error}=await db.from("identity_groups").select("id,identity_members(character_id)");
   if(error)throw error;
@@ -63,7 +60,6 @@ export async function rebuildAutomaticIdentities(db){
     for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++){const a=byName.get(names[i]),b=byName.get(names[j]);if(a&&b&&a.id!==b.id)coKillPairs.add(pairKey(a.id,b.id))}
   }
 
-  const dominance=suggestionDominance(sugRes.data??[]);
   const directed=new Map();
   for(const s of sugRes.data??[]){const a=byId.get(s.character_id),b=byName.get(String(s.suggested_name||"").toLowerCase());if(a&&b&&a.id!==b.id)directed.set(a.id+">"+b.id,s)}
   const edges=new Map();
@@ -72,14 +68,9 @@ export async function rebuildAutomaticIdentities(db){
   for(let i=0;i<chars.length;i++)for(let j=i+1;j<chars.length;j++){
     const a=chars[i],b=chars[j];if(coKillPairs.has(pairKey(a.id,b.id)))continue;
     const ab=directed.get(a.id+">"+b.id),ba=directed.get(b.id+">"+a.id),arr=[ab,ba].filter(Boolean);if(!arr.length)continue;
-    const best=[...arr].sort((x,y)=>Number(y.match_count||0)-Number(x.match_count||0))[0],bestScore=Number(best.relative_score||0),bestMatches=Number(best.match_count||0),span=daysBetween(best.first_match_date,best.last_match_date);
+    const best=[...arr].sort((x,y)=>Number(y.relative_score||0)-Number(x.relative_score||0)||Number(y.match_count||0)-Number(x.match_count||0))[0],bestScore=Number(best.relative_score||0),bestMatches=Number(best.match_count||0);
     let strength=0,kind="";
-    if(ab&&ba){
-      const minScore=Math.min(Number(ab.relative_score||0),Number(ba.relative_score||0)),minMatches=Math.min(Number(ab.match_count||0),Number(ba.match_count||0)),minSpan=Math.min(daysBetween(ab.first_match_date,ab.last_match_date),daysBetween(ba.first_match_date,ba.last_match_date));
-      if(minScore>=70&&minMatches>=20&&minSpan>=7){strength=Math.min(99,Math.round(55+minScore*.25+Math.min(120,minMatches)*.15+Math.min(60,minSpan)*.08));kind="RECIPROCAL"}
-    }
-    if(!strength&&bestScore>=95&&bestMatches>=80&&span>=30){strength=Math.min(97,Math.round(72+Math.min(150,bestMatches)*.12+Math.min(90,span)*.05));kind="ULTRA_ONE_WAY"}
-    if(!strength){const meta=dominance.get(String(best.character_id||"")+">"+String(best.suggested_name||"").toLowerCase());if(meta?.rank===1&&bestScore>=98&&bestMatches>=50&&span>=60&&meta.margin>=15){strength=Math.min(97,Math.round(78+Math.min(120,bestMatches)*.1+Math.min(180,span)*.025+Math.min(30,meta.margin)*.12));kind="DOMINANT_LONG_ONE_WAY"}}
+    if(bestScore>=95&&bestMatches>=10){strength=Math.min(99,Math.round(bestScore));kind="STALKER_PERCENT"}
     if(strength){const key=pairKey(a.id,b.id),old=edges.get(key);if(!old||strength>old.strength)edges.set(key,{a:a.id,b:b.id,strength,matches:bestMatches,kind})}
   }
 
