@@ -23,7 +23,7 @@ export async function ensureAutonomousResetV4(){
   const updates=(allChars??[]).map((ch:any)=>{
     const seed=PK_SEED_SET.has(String(ch.name).toLowerCase());
     const tags=seed?[...new Set([...(ch.tags??[]).filter((t:string)=>!t.startsWith("DISCOVERY_DEPTH:")&&t!=="AUTO_DISCOVERED"&&t!=="AUTO_NOISE"),"PK_SEED"])]:[...(ch.tags??[]).filter((t:string)=>t!=="PK_SEED"&&!t.startsWith("DISCOVERY_DEPTH:")),"AUTO_NOISE"];
-    return {id:ch.id,name:ch.name,tags,monitored:seed,archived:false};
+    return {id:ch.id,name:ch.name,tags,monitored:seed,archived:false,confidence:"LOW"};
   });
   if(updates.length){const u=await supabase.from("characters").upsert(updates,{onConflict:"id"});if(u.error)throw u.error}
 
