@@ -15,7 +15,6 @@ function toDateOnly(v){if(!v)return null;const s=String(v).slice(0,10);return /^
 async function isJadebraCharacter(name){try{const r=await fetch("https://api.tibiadata.com/v4/character/"+encodeURIComponent(name),{headers:{accept:"application/json"}});if(!r.ok)return false;const j=await r.json();const root=j.character||j.characters||j;const info=root.character||root.data||root;return String(info.world||"")==="Jadebra"}catch{return false}}
 async function syncStalkerSuggestions(list){
   for(const c of list){
-    let autoAdded=0;
     try{
       const r=await fetch(API_URL+encodeURIComponent(c.name),{headers:{accept:"application/json"}});
       if(!r.ok)throw new Error("HTTP "+r.status);
@@ -34,18 +33,18 @@ async function syncStalkerSuggestions(list){
         },{onConflict:"character_id,suggested_name"});
         let other=await findCharByName(name);
         const depth=discoveryDepth(c.tags??[]);
-        if(discoveryRule(depth,score,matches)&&autoAdded<1){
+        if(discoveryRule(depth,score,matches)){
           const total=(await db.from("characters").select("id",{count:"exact",head:true}).eq("monitored",true)).count??0;
           if(total<150&&await isJadebraCharacter(name)){
             const nextDepth=(depth??0)+1;
             const tags=other?.tags?.includes("PK_SEED")?other.tags:[...new Set([...(other?.tags??[]).filter(t=>t!=="AUTO_NOISE"&&!String(t).startsWith("DISCOVERY_DEPTH:")),"AUTO_DISCOVERED","DISCOVERY_DEPTH:"+nextDepth])];
             if(other?.id){
               await db.from("characters").update({monitored:true,archived:false,tags}).eq("id",other.id);
-              autoAdded++;console.log("reativado por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches);
+              console.log("reativado por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches);
             }else{
               const {data:world}=await db.from("worlds").upsert({name:"Jadebra"},{onConflict:"name"}).select("id").single();
               const added=await db.from("characters").insert({name,world_id:world?.id??null,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags}).select("id,tags").single();
-              if(added.data?.id){other=added.data;autoAdded++;console.log("auto-descoberto por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches)}
+              if(added.data?.id){other=added.data;console.log("auto-descoberto por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches)}
             }
           }
         }
