@@ -37,14 +37,14 @@ async function syncOne(db,ch){
     for(const k of ev.killers){if(!k.player)continue;const key=k.name.toLowerCase();if(seen.has(key))continue;seen.add(key);players.push(k)}
     if(!players.length)continue;
     const {data:victimChar}=await db.from("characters").select("id").ilike("name",ev.victim).maybeSingle();
-    const dedupe="ring-death:"+ev.at+":"+ev.victim.toLowerCase();
+    const dedupe="pvp-death:"+ev.at+":"+ev.victim.toLowerCase();
     const payload={character_id:victimChar?.id??null,occurred_at:ev.at,level:ev.victimLevel,killers:players,source:"TIBIARING",confidence:"HIGH",reference_url:url,raw_data:{victim:ev.victim,victimLevel:ev.victimLevel,world:"Jadebra",sourceCharacter:ch.name,allKillers:ev.killers},dedupe_key:dedupe};
     const up=await db.from("death_events").upsert(payload,{onConflict:"dedupe_key"});
     if(up.error)throw up.error;saved++;
     for(const [idx,k] of players.entries()){
       const {data:kc}=await db.from("characters").select("id,monitored").ilike("name",k.name).maybeSingle();
       if(kc?.id){
-        await db.from("pvp_events").upsert({character_id:kc.id,opponent_name:ev.victim,role:idx===0?"KILLER":"ASSIST",occurred_at:ev.at,source:"TIBIARING",confidence:"HIGH",reference_url:url,raw_data:{victim:ev.victim,participants:players},dedupe_key:"ring-pvp:"+kc.id+":"+ev.at+":"+ev.victim.toLowerCase()+":"+(idx===0?"killer":"assist")},{onConflict:"dedupe_key"});
+        await db.from("pvp_events").upsert({character_id:kc.id,opponent_name:ev.victim,role:idx===0?"KILLER":"ASSIST",occurred_at:ev.at,source:"TIBIARING",confidence:"HIGH",reference_url:url,raw_data:{victim:ev.victim,participants:players},dedupe_key:"pvp-event:"+kc.id+":"+ev.at+":"+ev.victim.toLowerCase()+":"+(idx===0?"killer":"assist")},{onConflict:"dedupe_key"});
       }
     }
   }
@@ -63,7 +63,12 @@ export default async function handler(req,res){
     if(!ch?.monitored||ch.worlds?.name!=="Jadebra")return res.status(400).json({error:"Character is not an active Jadebra target"});
     const result=await syncOne(db,ch);return res.status(200).json({ok:true,name:ch.name,...result});
   }catch(e){
-    await db.from("source_syncs").update({enabled:true,status:"ERROR",last_error:e instanceof Error?e.message:String(e),updated_at:new Date().toISOString()}).eq("source","TIBIARING");
-    return res.status(500).json({error:e instanceof Error?e.message:String(e)});
+    const msg=e instanceof Error?e.message:String(e);
+    if(/HTTP 403/.test(msg)){
+      await db.from("source_syncs").update({enabled:true,status:"IDLE",last_error:"TibiaRing bloqueou requisições do Vercel (HTTP 403). Fallback de kills pelo TibiaData está ativo.",config:{degraded:true,fallback:"TIBIADATA_PVP_WATCH"},updated_at:new Date().toISOString()}).eq("source","TIBIARING");
+      return res.status(200).json({ok:false,degraded:true,fallback:"TIBIADATA",error:msg});
+    }
+    await db.from("source_syncs").update({enabled:true,status:"ERROR",last_error:msg,updated_at:new Date().toISOString()}).eq("source","TIBIARING");
+    return res.status(500).json({error:msg});
   }
 }
