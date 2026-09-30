@@ -22,8 +22,6 @@ async function syncStalkerSuggestions(list){
       const j=await r.json();
       const items=Array.isArray(j?.possibleInvisibleCharacters)?j.possibleInvisibleCharacters:[];
       const max=Math.max(0,...items.map(x=>Number(x.numberOfMatches||0)));
-      const ranked=[...items].sort((a,b)=>Number(b.numberOfMatches||0)-Number(a.numberOfMatches||0));
-      const secondScore=max&&ranked[1]?Math.round(Number(ranked[1].numberOfMatches||0)/max*10000)/100:0;
       for(const x of items){
         const name=String(x.otherCharacterName||"").trim();if(!name)continue;
         const matches=Number(x.numberOfMatches||0);
@@ -35,21 +33,19 @@ async function syncStalkerSuggestions(list){
           relative_score:score,fetched_at:new Date().toISOString(),raw_data:x
         },{onConflict:"character_id,suggested_name"});
         let other=await findCharByName(name);
-        const span=x.firstMatchDateOnly&&x.lastMatchDateOnly?Math.max(0,Math.round((new Date(x.lastMatchDateOnly)-new Date(x.firstMatchDateOnly))/86400000)):0;
         const depth=discoveryDepth(c.tags??[]);
-        const isTop=matches===max&&max>0;const margin=isTop?Math.max(0,score-secondScore):0;
-        if(discoveryRule(depth,score,matches,span,margin,isTop)&&autoAdded<1){
+        if(discoveryRule(depth,score,matches)&&autoAdded<1){
           const total=(await db.from("characters").select("id",{count:"exact",head:true}).eq("monitored",true)).count??0;
           if(total<150&&await isJadebraCharacter(name)){
             const nextDepth=(depth??0)+1;
             const tags=other?.tags?.includes("PK_SEED")?other.tags:[...new Set([...(other?.tags??[]).filter(t=>t!=="AUTO_NOISE"&&!String(t).startsWith("DISCOVERY_DEPTH:")),"AUTO_DISCOVERED","DISCOVERY_DEPTH:"+nextDepth])];
             if(other?.id){
               await db.from("characters").update({monitored:true,archived:false,tags}).eq("id",other.id);
-              autoAdded++;console.log("reativado por evidência forte",name,"a partir de",c.name,score,matches,span);
+              autoAdded++;console.log("reativado por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches);
             }else{
               const {data:world}=await db.from("worlds").upsert({name:"Jadebra"},{onConflict:"name"}).select("id").single();
               const added=await db.from("characters").insert({name,world_id:world?.id??null,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags}).select("id,tags").single();
-              if(added.data?.id){other=added.data;autoAdded++;console.log("auto-descoberto ancorado",name,"a partir de",c.name,score,matches,span)}
+              if(added.data?.id){other=added.data;autoAdded++;console.log("auto-descoberto por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches)}
             }
           }
         }
