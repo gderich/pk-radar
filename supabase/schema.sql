@@ -29,7 +29,6 @@ create table if not exists source_observations(id uuid primary key default gen_r
 alter table characters enable row level security; alter table worlds enable row level security; alter table guilds enable row level security; alter table online_events enable row level security; alter table death_events enable row level security; alter table pvp_events enable row level security; alter table level_events enable row level security; alter table guild_events enable row level security; alter table player_relations enable row level security; alter table relation_evidence enable row level security; alter table alerts enable row level security; alter table alert_rules enable row level security; alter table source_syncs enable row level security; alter table source_observations enable row level security; alter table stalker_suggestions enable row level security;
 do $$ declare t text; begin foreach t in array array['characters','worlds','guilds','online_events','death_events','pvp_events','level_events','guild_events','player_relations','relation_evidence','alerts','alert_rules','source_syncs','source_observations','stalker_suggestions'] loop execute format('drop policy if exists authenticated_all on %I',t); execute format('create policy authenticated_all on %I for all to authenticated using (true) with check (true)',t); end loop; end $$;
 insert into characters(name) values
-('Gjdebz'),
 ('Elmuerte'),
 ('Royal Creeds'),
 ('Villas Creeds'),
@@ -40,6 +39,7 @@ insert into characters(name) values
 ('Rocha Vimprorush'),
 ('Arcon Dusing'),
 ('Malokeirah'),
+('Ninfaj'),
 ('Madara Gestao Inteligente'),
 ('Repair Softboots'),
 ('Paldoni Karke'),
@@ -70,7 +70,6 @@ insert into characters(name) values
 ('Atiradora de Dardos'),
 ('Rhashid'),
 ('Fjdebzz'),
-('Hjdebz'),
 ('Lebesquedoh')
 on conflict(name) do nothing;
 insert into source_syncs(source,status,enabled) values
@@ -80,3 +79,15 @@ create index if not exists characters_online_idx on characters(monitored,archive
 create index if not exists online_events_time_idx on online_events(occurred_at desc);
 \ncreate index if not exists stalker_suggestions_character_score_idx on stalker_suggestions(character_id,relative_score desc,match_count desc);\n
 create unique index if not exists relation_evidence_unique_signal on relation_evidence(relation_id,evidence_type,source);
+
+create table if not exists identity_groups(id uuid primary key default gen_random_uuid(),label text not null,confidence confidence_level not null default 'CONFIRMED',notes text,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create table if not exists identity_members(group_id uuid not null references identity_groups(id) on delete cascade,character_id uuid not null references characters(id) on delete cascade,source text not null default 'MANUAL',confidence_score numeric(5,2) not null default 100,notes text,created_at timestamptz not null default now(),primary key(group_id,character_id),unique(character_id));
+create table if not exists character_associations(character_a_id uuid not null references characters(id) on delete cascade,character_b_id uuid not null references characters(id) on delete cascade,co_online_count int not null default 0,first_seen_at timestamptz,last_seen_at timestamptz,association_score numeric(5,2) not null default 0,notes text,primary key(character_a_id,character_b_id),check(character_a_id<>character_b_id));
+alter table identity_groups enable row level security; alter table identity_members enable row level security; alter table character_associations enable row level security;
+drop policy if exists authenticated_all on identity_groups; drop policy if exists authenticated_all on identity_members; drop policy if exists authenticated_all on character_associations;
+create policy authenticated_all on identity_groups for all to authenticated using (true) with check (true);
+create policy authenticated_all on identity_members for all to authenticated using (true) with check (true);
+create policy authenticated_all on character_associations for all to authenticated using (true) with check (true);
+create index if not exists identity_members_group_idx on identity_members(group_id);
+create index if not exists character_associations_score_idx on character_associations(association_score desc);
+
