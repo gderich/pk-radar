@@ -15,6 +15,17 @@ function daysBetween(a:any,b:any){
 function overlapCount(a:Set<string>,b:Set<string>){
   let n=0;for(const x of a)if(b.has(x))n++;return n;
 }
+function suggestionDominance(rows:any[]){
+  const out=new Map<string,{rank:number;margin:number;topScore:number;secondScore:number}>();
+  const byOrigin=new Map<string,any[]>();
+  for(const s of rows??[]){const id=String((s as any).character_id||"");if(!id)continue;const arr=byOrigin.get(id)??[];arr.push(s);byOrigin.set(id,arr)}
+  for(const [id,arr] of byOrigin){
+    const sorted=[...arr].sort((a:any,b:any)=>Number(b.relative_score||0)-Number(a.relative_score||0)||Number(b.match_count||0)-Number(a.match_count||0));
+    const topScore=Number(sorted[0]?.relative_score||0),secondScore=Number(sorted[1]?.relative_score||0);
+    sorted.forEach((s:any,index:number)=>out.set(id+">"+String(s.suggested_name||"").toLowerCase(),{rank:index+1,margin:index===0?Math.max(0,topScore-secondScore):0,topScore,secondScore}));
+  }
+  return out;
+}
 
 export async function ensureAutonomousResetV4(){
   const {data:row,error}=await supabase.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
@@ -180,6 +191,7 @@ export async function rebuildAutomaticIdentities(){
     }
   }
 
+  const dominance=suggestionDominance(sugRes.data??[]);
   const directed=new Map<string,any>();
   for(const s of sugRes.data??[]){
     const a=byId.get((s as any).character_id);
@@ -220,6 +232,13 @@ export async function rebuildAutomaticIdentities(){
     if(!strength&&bestScore>=95&&bestMatches>=80&&span>=30){
       strength=Math.min(97,Math.round(72+Math.min(150,bestMatches)*.12+Math.min(90,span)*.05));
       kind="ULTRA_ONE_WAY";
+    }
+    if(!strength){
+      const meta=dominance.get(String(best.character_id||"")+">"+String(best.suggested_name||"").toLowerCase());
+      if(meta?.rank===1&&bestScore>=98&&bestMatches>=50&&span>=60&&meta.margin>=15){
+        strength=Math.min(97,Math.round(78+Math.min(120,bestMatches)*.1+Math.min(180,span)*.025+Math.min(30,meta.margin)*.12));
+        kind="DOMINANT_LONG_ONE_WAY";
+      }
     }
     if(strength){
       const key=pairKey(a.id,b.id),old=edges.get(key);
