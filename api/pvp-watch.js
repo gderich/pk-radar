@@ -18,7 +18,7 @@ async function authUser(req,db){
 }
 function onlineNames(j){
   const list=j?.world?.online_players??j?.world?.players_online??j?.worlds?.players_online??j?.players_online??[];
-  return (Array.isArray(list)?list:[]).map(x=>String(x?.name??x||"").trim()).filter(Boolean);
+  return (Array.isArray(list)?list:[]).map(x=>String((x?.name??x)||"").trim()).filter(Boolean);
 }
 function deathList(j){
   const root=j?.character??j?.characters??j??{};
