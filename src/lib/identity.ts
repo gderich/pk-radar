@@ -40,7 +40,7 @@ export async function ensureAutonomousResetV4(){
 
 export async function rebuildAutomaticIdentities(){
   const [charsRes,sugRes,relRes]=await Promise.all([
-    supabase.from("characters").select("id,name,monitored,worlds(name)").eq("archived",false).eq("monitored",true),
+    supabase.from("characters").select("id,name,monitored,tags,worlds(name)").eq("archived",false).eq("monitored",true),
     supabase.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date,characters(name,worlds(name))"),
     supabase.from("player_relations").select("character_a_id,character_b_id,status,confidence_score")
   ]);
@@ -48,7 +48,7 @@ export async function rebuildAutomaticIdentities(){
   if(sugRes.error)throw sugRes.error;
   if(relRes.error)throw relRes.error;
 
-  const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD);
+  const chars=(charsRes.data??[]).filter((c:any)=>c.worlds?.name===TARGET_WORLD&&(PK_SEED_SET.has(String(c.name).toLowerCase())||(c.tags??[]).includes("PK_SEED")||(c.tags??[]).includes("AUTO_DISCOVERED")));
   const byId=new Map(chars.map((c:any)=>[c.id,c]));
   const byName=new Map(chars.map((c:any)=>[String(c.name).toLowerCase(),c]));
   const directed=new Map<string,any>();
