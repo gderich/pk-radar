@@ -30,14 +30,24 @@ async function syncStalkerSuggestions(list){
         const {data:other}=await db.from("characters").select("id").ilike("name",name).maybeSingle();
         if(other?.id&&other.id!==c.id){
           const ids=[c.id,other.id].sort();
-          const {data:rel}=await db.from("player_relations").upsert({
-            character_a_id:ids[0],character_b_id:ids[1],
-            status:score>=80?"HIGH":score>=40?"MEDIUM":"LOW",
-            confidence_score:Math.min(95,score),
-            manual_note:"Correlação automática do Tibia Stalker por padrões de login/logout"
-          },{onConflict:"character_a_id,character_b_id"}).select("id,status").single();
-          if(rel?.id&&rel.status!=="CONFIRMED"&&rel.status!=="REJECTED"){
-            await db.from("relation_evidence").upsert({
+          const {data:existing}=await db.from("player_relations").select("id,status,confidence_score").eq("character_a_id",ids[0]).eq("character_b_id",ids[1]).maybeSingle();
+          if(existing?.status!=="CONFIRMED"&&existing?.status!=="REJECTED"){
+            let rel=existing;
+            if(existing?.id){
+              const u=await db.from("player_relations").update({
+                status:score>=80?"HIGH":score>=40?"MEDIUM":"LOW",
+                confidence_score:Math.min(95,score),
+                manual_note:"Correlação automática do Tibia Stalker por padrões de login/logout"
+              }).eq("id",existing.id).select("id,status").single();rel=u.data;
+            }else{
+              const u=await db.from("player_relations").insert({
+                character_a_id:ids[0],character_b_id:ids[1],
+                status:score>=80?"HIGH":score>=40?"MEDIUM":"LOW",
+                confidence_score:Math.min(95,score),
+                manual_note:"Correlação automática do Tibia Stalker por padrões de login/logout"
+              }).select("id,status").single();rel=u.data;
+            }
+            if(rel?.id)await db.from("relation_evidence").upsert({
               relation_id:rel.id,source:"TIBIA_STALKER",evidence_type:"STALKER_CORRELATION",
               summary:matches+" correspondências de login/logout no Tibia Stalker",
               weight:Math.min(95,score),fetched_at:new Date().toISOString(),
