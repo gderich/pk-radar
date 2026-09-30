@@ -16,3 +16,5 @@ create policy authenticated_all on stalker_suggestions for all to authenticated 
 create index if not exists stalker_suggestions_character_score_idx on stalker_suggestions(character_id,relative_score desc,match_count desc);
 
 delete from characters where lower(name) in ('gjdebz','hjdebz');
+
+create unique index if not exists relation_evidence_unique_signal on relation_evidence(relation_id,evidence_type,source);
