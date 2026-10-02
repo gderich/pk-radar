@@ -16,7 +16,9 @@ jobs:
       - run: node --check worker/monitor.mjs
       - run: node --check worker/sources.mjs
       - run: node --check worker/pvp-watch.mjs
+      - run: node --check shared/pvp-scan.mjs
       - run: node --check api/pvp-watch.js
+      - run: node --check api/pvp-pulse.js
       - run: node --check api/ring-sync.js
       - run: node --check api/public-who.js
       - run: node --check api/public-data.js
