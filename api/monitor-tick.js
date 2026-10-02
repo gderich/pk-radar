@@ -2,8 +2,8 @@ import {createClient} from "@supabase/supabase-js";
 import {scanPvpKills} from "../shared/pvp-scan.mjs";
 
 function authorized(req){
-  const expected=process.env.MONITOR_CRON_SECRET;
-  if(!expected)return {ok:false,code:503,error:"MONITOR_CRON_SECRET is not configured"};
+  const expected=process.env.CRON_SECRET||process.env.MONITOR_CRON_SECRET;
+  if(!expected)return {ok:false,code:503,error:"CRON_SECRET is not configured"};
   const h=req.headers.authorization||"";
   const token=h.startsWith("Bearer ")?h.slice(7):"";
   return token===expected?{ok:true}:{ok:false,code:401,error:"Unauthorized"};
@@ -42,7 +42,7 @@ async function sendTelegram(item){
 
 export default async function handler(req,res){
   res.setHeader("Cache-Control","no-store");
-  if(req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
+  if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"Method not allowed"});
 
   const auth=authorized(req);
   if(!auth.ok)return res.status(auth.code).json({error:auth.error});
