@@ -53,7 +53,7 @@ export default async function handler(req,res){
       safe(db.from("pvp_events").select("id,opponent_name,role,occurred_at,source,raw_data,characters(name,worlds(name))").order("occurred_at",{ascending:false}).limit(300)),
       safe(db.from("character_sessions").select("id,login_at,logout_at,duration_minutes,characters(name,worlds(name))").order("login_at",{ascending:false}).limit(1500)),
       safe(db.from("alerts").select("id,title,body,triggered_at,metadata,characters(name)").order("triggered_at",{ascending:false}).limit(150)),
-      safe(db.from("source_syncs").select("source,enabled,status,last_success_at,next_sync_at,last_error,updated_at").order("source"))
+      safe(db.from("source_syncs").select("source,enabled,status,last_success_at,next_sync_at,last_error,updated_at,config").order("source"))
     ]);
 
     const active=allChars.filter(c=>c.monitored&&c.worlds?.name===WORLD);
@@ -127,21 +127,34 @@ export default async function handler(req,res){
       ...onlineEvents.map(x=>({kind:x.kind,name:eventName(x),occurredAt:x.occurred_at,opponent:null})),
       ...deathEvents.map(x=>({kind:"DEATH",name:eventName(x),occurredAt:x.occurred_at,opponent:null})),
       ...levelEvents.map(x=>({kind:"LEVEL_UP",name:eventName(x),occurredAt:x.occurred_at,opponent:null,oldLevel:x.old_level,newLevel:x.new_level})),
-      ...pvpEvents.map(x=>({kind:"PVP_KILL",name:eventName(x),occurredAt:x.occurred_at,opponent:x.opponent_name??null,role:x.role??null}))
+      ...pvpEvents.map(x=>({kind:x.role==="KILLER"?"PVP_KILL":x.role==="ASSIST"?"PVP_ASSIST":x.role==="VICTIM"?"PVP_VICTIM":"PVP",name:eventName(x),occurredAt:x.occurred_at,opponent:x.opponent_name??null,role:x.role??null}))
     ].filter(x=>{
       if(x.kind==="MASS_LOGIN")return true;
       const ch=characters.find(c=>c.name===x.name);return Boolean(ch);
     }).sort((a,b)=>new Date(b.occurredAt).getTime()-new Date(a.occurredAt).getTime()).slice(0,300);
 
-    const deathRows=deathEvents.map(d=>{
-      const victimWorld=eventWorld(d),victim=eventName(d);
-      const participants=(Array.isArray(d.killers)?d.killers:[]).map((k,i)=>{
-        const name=killerName(k);
+    const deathMap=new Map();
+    for(const d of deathEvents){
+      const victimWorld=eventWorld(d),victim=eventName(d),occurredAt=new Date(d.occurred_at).toISOString();
+      const key=occurredAt+"|"+String(victim).toLowerCase();
+      let row=deathMap.get(key);
+      if(!row){row={occurredAt,victim,victimWorld,sourceSet:new Set(),participants:[]};deathMap.set(key,row)}
+      row.sourceSet.add(d.source);
+      if(!row.victimWorld&&victimWorld)row.victimWorld=victimWorld;
+      const byName=new Map(row.participants.map(p=>[String(p.name).toLowerCase(),p]));
+      for(const [i,k] of (Array.isArray(d.killers)?d.killers:[]).entries()){
+        const name=killerName(k);if(!name)continue;
         const tracked=characters.find(c=>c.name.toLowerCase()===name.toLowerCase());
-        return {name,role:k?.role??(i===0?"KILLER":"ASSIST"),level:k?.level??null,guild:tracked?.guild??null,tracked:Boolean(tracked)};
-      }).filter(k=>k.name);
-      return {occurredAt:d.occurred_at,victim,victimWorld,source:d.source,participants};
-    }).filter(d=>d.victimWorld===WORLD);
+        const role=k?.role??(i===0?"KILLER":"ASSIST");
+        const nk=name.toLowerCase(),old=byName.get(nk);
+        if(old){if(old.role==="ASSIST"&&role==="KILLER")old.role="KILLER";if(!old.tracked&&tracked){old.tracked=true;old.guild=tracked.guild??null}continue}
+        const item={name,role,level:k?.level??null,guild:tracked?.guild??null,tracked:Boolean(tracked)};
+        row.participants.push(item);byName.set(nk,item);
+      }
+    }
+    const deathRows=[...deathMap.values()].map(d=>({...d,source:[...d.sourceSet].join(" + ")}))
+      .filter(d=>d.victimWorld===WORLD&&d.participants.some(p=>p.tracked))
+      .sort((a,b)=>new Date(b.occurredAt).getTime()-new Date(a.occurredAt).getTime());
 
     const sessionRows=sessions.filter(s=>s.characters?.worlds?.name===WORLD).map(s=>({
       character:s.characters?.name??"Desconhecido",loginAt:s.login_at,logoutAt:s.logout_at??null,durationMinutes:Number(s.duration_minutes||0)
@@ -152,10 +165,25 @@ export default async function handler(req,res){
       source:s.source,enabled:Boolean(s.enabled),status:s.status,lastSuccessAt:s.last_success_at??null,nextSyncAt:s.next_sync_at??null,
       note:s.last_error?String(s.last_error).slice(0,220):null,updatedAt:s.updated_at??null
     }));
+    const tibiaDataSource=sources.find(s=>s.source==="TIBIADATA");
+    const scan=tibiaDataSource?.config??{};
+    const killMonitor={
+      status:tibiaDataSource?.status??"UNKNOWN",
+      lastScanAt:scan.kill_scan_last_scan_at??scan.pvp_watch_last_scan_at??scan.worker_pvp_last_scan_at??null,
+      lastCaller:scan.kill_scan_last_caller??null,
+      poolSize:Number(scan.kill_scan_pool_size??scan.pvp_watch_pool_size??0),
+      batchSize:Number(scan.kill_scan_batch_size??scan.pvp_watch_batch_size??0),
+      fetchErrors:Number(scan.kill_scan_fetch_errors??0),
+      matchedDeaths:Number(scan.kill_scan_matched_deaths??0),
+      newDeaths:Number(scan.kill_scan_new_deaths??0),
+      newAlerts:Number(scan.kill_scan_new_alerts??0),
+      estimatedCycleSeconds:Number(scan.kill_scan_estimated_cycle_seconds??0),
+      lastError:tibiaDataSource?.last_error??null
+    };
 
     return res.status(200).json({
       world:WORLD,updatedAt:new Date().toISOString(),
-      characters,profiles,isolated,suggestions:suggestionRows,evidenceLinks,events,deaths:deathRows,sessions:sessionRows,alerts:publicAlerts,sources:publicSources
+      characters,profiles,isolated,suggestions:suggestionRows,evidenceLinks,events,deaths:deathRows,sessions:sessionRows,alerts:publicAlerts,sources:publicSources,killMonitor
     });
   }catch(e){
     console.error("public-data",e);
