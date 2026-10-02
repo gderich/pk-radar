@@ -102,6 +102,27 @@ export default async function handler(req,res){
       first:s.first_match_date??null,last:s.last_match_date??null
     })).filter(s=>s.character);
 
+    // Sanitized read-only evidence graph used by the public "Ver caminho" explorer.
+    // No internal ids are returned to the browser.
+    const evidenceByPair=new Map();
+    const edgeKey=(a,b)=>[String(a).toLowerCase(),String(b).toLowerCase()].sort().join("|");
+    for(const r of relations){
+      const a=activeById.get(r.character_a_id),b=activeById.get(r.character_b_id);
+      if(!a||!b)continue;
+      const isPublic=String(r.manual_note||"").includes("Mesma conta pública");
+      const edge={from:a.name,to:b.name,kind:isPublic?"PUBLIC_ACCOUNT":"CONFIRMED_RELATION",score:Number(r.confidence_score||100),matches:null,first:null,last:null};
+      evidenceByPair.set(edgeKey(a.name,b.name),edge);
+    }
+    for(const s of suggestionRows){
+      const b=characters.find(c=>c.name.toLowerCase()===String(s.suggestedName||"").toLowerCase());
+      if(!b||Number(s.score||0)<95||Number(s.matchCount||0)<10)continue;
+      const key=edgeKey(s.character,b.name),old=evidenceByPair.get(key);
+      if(old?.kind==="PUBLIC_ACCOUNT")continue;
+      const edge={from:s.character,to:b.name,kind:"STALKER_PERCENT",score:Number(s.score||0),matches:Number(s.matchCount||0),first:s.first??null,last:s.last??null};
+      if(!old||Number(edge.score)>Number(old.score||0)||(Number(edge.score)===Number(old.score||0)&&Number(edge.matches)>Number(old.matches||0)))evidenceByPair.set(key,edge);
+    }
+    const evidenceLinks=[...evidenceByPair.values()];
+
     const events=[
       ...onlineEvents.map(x=>({kind:x.kind,name:eventName(x),occurredAt:x.occurred_at,opponent:null})),
       ...deathEvents.map(x=>({kind:"DEATH",name:eventName(x),occurredAt:x.occurred_at,opponent:null})),
@@ -134,7 +155,7 @@ export default async function handler(req,res){
 
     return res.status(200).json({
       world:WORLD,updatedAt:new Date().toISOString(),
-      characters,profiles,isolated,suggestions:suggestionRows,events,deaths:deathRows,sessions:sessionRows,alerts:publicAlerts,sources:publicSources
+      characters,profiles,isolated,suggestions:suggestionRows,evidenceLinks,events,deaths:deathRows,sessions:sessionRows,alerts:publicAlerts,sources:publicSources
     });
   }catch(e){
     console.error("public-data",e);
