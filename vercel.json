@@ -1,1 +1,1 @@
-{"rewrites":[{"source":"/api/(.*)","destination":"/api/$1"},{"source":"/(.*)","destination":"/index.html"}],"crons":[{"path":"/api/monitor-tick","schedule":"* * * * *"}]}
+{"rewrites":[{"source":"/api/(.*)","destination":"/api/$1"},{"source":"/(.*)","destination":"/index.html"}]}
