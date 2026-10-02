@@ -28,6 +28,12 @@ async function getJson(url){
   if(!r.ok)throw new Error("HTTP "+r.status+" "+url);
   return r.json();
 }
+async function mapLimit(items,limit,fn){
+  const out=new Array(items.length);let next=0;
+  async function worker(){while(true){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i],i)}}
+  await Promise.all(Array.from({length:Math.min(Math.max(1,limit),items.length)},()=>worker()));
+  return out;
+}
 function canonicalDeathKey(at,victim){return "pvp-death:"+at+":"+keyName(victim)}
 function canonicalPvpKey(id,at,victim,role){return "pvp-event:"+id+":"+at+":"+keyName(victim)+":"+String(role).toLowerCase()}
 
@@ -68,10 +74,10 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
   const selected=poolKeys.slice(0,Math.min(Number(batchSize)||DEFAULT_BATCH,poolKeys.length));
   const batch=selected.map(k=>canonicalNames[k]||k);
 
-  const results=await Promise.all(batch.map(async victim=>{
+  const results=await mapLimit(batch,8,async victim=>{
     try{return {victim,key:keyName(victim),data:await getJson(CHAR_API+encodeURIComponent(victim))}}
     catch(error){return {victim,key:keyName(victim),error:error instanceof Error?error.message:String(error)}}
-  }));
+  });
 
   let newDeaths=0,newPvp=0,newAlerts=0,matchedDeaths=0,fetchErrors=0;
   const found=[],newAlertItems=[];
