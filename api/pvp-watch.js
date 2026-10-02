@@ -29,7 +29,7 @@ export default async function handler(req,res){
     :createClient(url,key,{auth:{persistSession:false},global:{headers:{Authorization:"Bearer "+token}}});
 
   try{
-    const result=await scanPvpKills(db,{batchSize:24,caller:"PRIVATE_PANEL"});
+    const result=await scanPvpKills(db,{batchSize:24,minimumGapMs:8000,caller:"PRIVATE_PANEL"});
     return res.status(200).json(result);
   }catch(e){
     const msg=e instanceof Error?e.message:String(e);
