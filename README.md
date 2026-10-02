@@ -33,7 +33,7 @@ Sugestões de relacionamento são evidências probabilísticas, nunca fatos auto
 A coleta de kills não depende da aba do navegador. O endpoint `/api/monitor-tick` roda no servidor e usa o Supabase como estado persistente.
 
 ### Produção
-- Vercel Cron chama `/api/monitor-tick` a cada 1 minuto.
+- cron-job.org (ou outro scheduler HTTP) chama `/api/monitor-tick` a cada 1 minuto.
 - GitHub Actions (`.github/workflows/pvp-monitor.yml`) serve como fallback a cada 5 minutos.
 - O endpoint exige `CRON_SECRET`.
 - Kills novas geram registros em `death_events`, `pvp_events` e `alerts`.
@@ -48,3 +48,7 @@ Na Vercel:
 - `TELEGRAM_CHAT_ID` (opcional, recomendado)
 
 No GitHub Actions, adicione `CRON_SECRET` com o mesmo valor usado na Vercel para habilitar o fallback de 5 minutos.
+
+
+### Scheduler externo
+Configure um job HTTP a cada 1 minuto apontando para `https://pk-radar.vercel.app/api/monitor-tick`, método POST (ou GET), com o header `Authorization: Bearer <CRON_SECRET>`. O valor deve ser o mesmo configurado na Vercel. Isso replica a estratégia que já funcionava no monitor Quinta Série EAD, sem depender de uma aba do navegador.
