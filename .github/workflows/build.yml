@@ -19,4 +19,5 @@ jobs:
       - run: node --check api/pvp-watch.js
       - run: node --check api/ring-sync.js
       - run: node --check api/public-who.js
+      - run: node --check api/public-data.js
       - run: npm run build
