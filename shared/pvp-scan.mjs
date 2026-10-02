@@ -74,7 +74,7 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
   }));
 
   let newDeaths=0,newPvp=0,newAlerts=0,matchedDeaths=0,fetchErrors=0;
-  const found=[];
+  const found=[],newAlertItems=[];
   const successfulKeys=[];
 
   for(const result of results){
@@ -136,7 +136,10 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
             dedupe_key:alertKey,metadata:{rule:"REVENGE_WINDOW",world:WORLD,victim:victimName,kill_at:at,detected_at:nowIso,retaliation_until:new Date(until).toISOString(),remaining_minutes:left,monitored_killers:names,killers,assists,source:"TIBIADATA"}
           },{onConflict:"dedupe_key"});
           if(up.error)throw up.error;
-          if(!existingAlert)newAlerts++;
+          if(!existingAlert){
+            newAlerts++;
+            newAlertItems.push({victim:victimName,killers:names,killAt:at,detectedAt:nowIso,retaliationUntil:new Date(until).toISOString(),remainingMinutes:left});
+          }
         }
         found.push({victim:victimName,at,killers:names,within_window:within,retaliation_until:new Date(until).toISOString()});
       }
@@ -186,6 +189,6 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
 
   return {
     ok:true,skipped:false,online:current.length,pool:poolKeys.length,scanned:batch.length,
-    matchedDeaths,newDeaths,newPvp,newAlerts,fetchErrors,found,estimatedCycleSeconds,lastScanAt:nowIso
+    matchedDeaths,newDeaths,newPvp,newAlerts,newAlertItems,fetchErrors,found,estimatedCycleSeconds,lastScanAt:nowIso
   };
 }
