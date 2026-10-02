@@ -27,3 +27,24 @@ O navegador usa o WebSocket do Tibia Stalker enquanto o painel está aberto. Par
 Tibia Stalker fornece online realtime e sugestões de possíveis outros chars. TibiaData fornece dados públicos complementares. TibiaRing/GuildStats podem ser adicionados como adapters independentes.
 
 Sugestões de relacionamento são evidências probabilísticas, nunca fatos automáticos.
+
+
+## Monitoramento de PvP em segundo plano
+A coleta de kills não depende da aba do navegador. O endpoint `/api/monitor-tick` roda no servidor e usa o Supabase como estado persistente.
+
+### Produção
+- Vercel Cron chama `/api/monitor-tick` a cada 1 minuto.
+- GitHub Actions (`.github/workflows/pvp-monitor.yml`) serve como fallback a cada 5 minutos.
+- O endpoint exige `CRON_SECRET`.
+- Kills novas geram registros em `death_events`, `pvp_events` e `alerts`.
+- Se `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` estiverem configurados na Vercel, uma kill nova dentro da janela de 15 minutos também dispara Telegram imediatamente.
+
+### Variáveis de servidor
+Na Vercel:
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY`
+- `CRON_SECRET`
+- `TELEGRAM_BOT_TOKEN` (opcional, recomendado)
+- `TELEGRAM_CHAT_ID` (opcional, recomendado)
+
+No GitHub Actions, adicione `CRON_SECRET` com o mesmo valor usado na Vercel para habilitar o fallback de 5 minutos.

@@ -28,6 +28,12 @@ async function getJson(url){
   if(!r.ok)throw new Error("HTTP "+r.status+" "+url);
   return r.json();
 }
+async function mapLimit(items,limit,fn){
+  const out=new Array(items.length);let next=0;
+  async function worker(){while(true){const i=next++;if(i>=items.length)return;out[i]=await fn(items[i],i)}}
+  await Promise.all(Array.from({length:Math.min(Math.max(1,limit),items.length)},()=>worker()));
+  return out;
+}
 function canonicalDeathKey(at,victim){return "pvp-death:"+at+":"+keyName(victim)}
 function canonicalPvpKey(id,at,victim,role){return "pvp-event:"+id+":"+at+":"+keyName(victim)+":"+String(role).toLowerCase()}
 
@@ -68,13 +74,13 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
   const selected=poolKeys.slice(0,Math.min(Number(batchSize)||DEFAULT_BATCH,poolKeys.length));
   const batch=selected.map(k=>canonicalNames[k]||k);
 
-  const results=await Promise.all(batch.map(async victim=>{
+  const results=await mapLimit(batch,8,async victim=>{
     try{return {victim,key:keyName(victim),data:await getJson(CHAR_API+encodeURIComponent(victim))}}
     catch(error){return {victim,key:keyName(victim),error:error instanceof Error?error.message:String(error)}}
-  }));
+  });
 
   let newDeaths=0,newPvp=0,newAlerts=0,matchedDeaths=0,fetchErrors=0;
-  const found=[];
+  const found=[],newAlertItems=[];
   const successfulKeys=[];
 
   for(const result of results){
@@ -136,7 +142,10 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
             dedupe_key:alertKey,metadata:{rule:"REVENGE_WINDOW",world:WORLD,victim:victimName,kill_at:at,detected_at:nowIso,retaliation_until:new Date(until).toISOString(),remaining_minutes:left,monitored_killers:names,killers,assists,source:"TIBIADATA"}
           },{onConflict:"dedupe_key"});
           if(up.error)throw up.error;
-          if(!existingAlert)newAlerts++;
+          if(!existingAlert){
+            newAlerts++;
+            newAlertItems.push({victim:victimName,killers:names,killAt:at,detectedAt:nowIso,retaliationUntil:new Date(until).toISOString(),remainingMinutes:left});
+          }
         }
         found.push({victim:victimName,at,killers:names,within_window:within,retaliation_until:new Date(until).toISOString()});
       }
@@ -186,6 +195,6 @@ export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,ca
 
   return {
     ok:true,skipped:false,online:current.length,pool:poolKeys.length,scanned:batch.length,
-    matchedDeaths,newDeaths,newPvp,newAlerts,fetchErrors,found,estimatedCycleSeconds,lastScanAt:nowIso
+    matchedDeaths,newDeaths,newPvp,newAlerts,newAlertItems,fetchErrors,found,estimatedCycleSeconds,lastScanAt:nowIso
   };
 }
