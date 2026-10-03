@@ -75,6 +75,32 @@ export async function pruneUnsupportedDiscoveries(db){
   return {removed:removed.length,removedNames:removed.map(x=>x.name).sort(),kept:kept.length,anchors:anchors.size,reachable:depth.size};
 }
 
+
+export async function ensureEvidenceCleanupV6(db){
+  const {data:row,error}=await db.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
+  if(error)throw error;
+  const config=row?.config&&typeof row.config==="object"?row.config:{};
+  if(Number(config.identity_mapping_version||0)>=6)return {ran:false,removed:0,removedNames:[]};
+  const result=await pruneUnsupportedDiscoveries(db);
+  const nextConfig={
+    ...config,
+    identity_mapping_version:6,
+    evidence_cleanup_v6_at:new Date().toISOString(),
+    evidence_cleanup_v6_removed:result.removed,
+    evidence_cleanup_v6_removed_names:result.removedNames,
+    evidence_cleanup_v6_reachable:result.reachable,
+    evidence_cleanup_v6_rule:"ANCHOR_REACHABILITY_MATCH_COUNT_ONLY"
+  };
+  if(row?.id){
+    const u=await db.from("source_syncs").update({config:nextConfig,updated_at:new Date().toISOString()}).eq("id",row.id);
+    if(u.error)throw u.error;
+  }else{
+    const u=await db.from("source_syncs").upsert({source:"MANUAL",enabled:true,status:"SUCCESS",config:nextConfig,updated_at:new Date().toISOString()},{onConflict:"source"});
+    if(u.error)throw u.error;
+  }
+  return {ran:true,...result};
+}
+
 async function reconcileClusters(db,clusters,byId,edgeList){
   const {data:existingRows,error}=await db.from("identity_groups").select("id,identity_members(character_id)");
   if(error)throw error;
