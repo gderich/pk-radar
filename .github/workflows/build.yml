@@ -24,4 +24,5 @@ jobs:
       - run: node --check api/public-who.js
       - run: node --check api/public-data.js
       - run: node --check api/mapping-cleanup.js
+      - run: node --check api/one-time-cleanup.js
       - run: npm run build
