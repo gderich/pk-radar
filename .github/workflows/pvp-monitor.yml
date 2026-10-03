@@ -16,7 +16,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     steps:
       - name: Disparar monitor server-side
         env:
@@ -28,3 +28,9 @@ jobs:
           fi
 
           curl --fail-with-body             --retry 3             --retry-delay 5             --max-time 90             -X POST "https://pk-radar.vercel.app/api/monitor-tick"             -H "Authorization: Bearer $CRON_SECRET"             -H "Content-Type: application/json"             --data '{}'
+
+      - name: Limpar mapeamento inválido
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body             --retry 2             --retry-delay 3             --max-time 90             -X POST "https://pk-radar.vercel.app/api/mapping-cleanup"             -H "Authorization: Bearer $CRON_SECRET"             -H "Content-Type: application/json"             --data '{}'

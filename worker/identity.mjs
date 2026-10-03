@@ -1,6 +1,74 @@
-import {PK_SEED_SET,stalkerEvidence} from "./seeds.mjs";
+import {MANUAL_IDENTITY_SETS,PK_SEED_SET,discoveryRule,stalkerEvidence} from "./seeds.mjs";
 function pairKey(a,b){return [a,b].sort().join(":")}
 function overlapCount(a,b){let n=0;for(const x of a)if(b.has(x))n++;return n}
+
+function nameKey(v){return String(v??"").trim().toLowerCase().replace(/\s+/g," ")}
+async function ensureManualIdentityRelations(db){
+  const {data:chars,error}=await db.from("characters").select("id,name,archived").eq("archived",false);
+  if(error)throw error;
+  const byName=new Map((chars??[]).map(x=>[nameKey(x.name),x]));
+  const rows=[];
+  for(const set of MANUAL_IDENTITY_SETS){
+    const ids=set.map(name=>byName.get(nameKey(name))).filter(Boolean);
+    if(ids.length<2)continue;
+    const anchor=ids[0];
+    for(const ch of ids.slice(1)){
+      const [a,b]=[anchor.id,ch.id].sort();
+      rows.push({character_a_id:a,character_b_id:b,status:"CONFIRMED",confidence_score:100,manual_note:"Observação manual confirmada pelo usuário",reviewed_at:new Date().toISOString()});
+    }
+  }
+  if(rows.length){const up=await db.from("player_relations").upsert(rows,{onConflict:"character_a_id,character_b_id"});if(up.error)throw up.error}
+}
+export async function pruneUnsupportedDiscoveries(db){
+  await ensureManualIdentityRelations(db);
+  const [charsRes,sugRes,relRes]=await Promise.all([
+    db.from("characters").select("id,name,source,monitored,online,tags,confidence,data_state,worlds(name)").eq("archived",false),
+    db.from("stalker_suggestions").select("id,character_id,suggested_name,match_count,first_match_date,last_match_date"),
+    db.from("player_relations").select("id,character_a_id,character_b_id,status,manual_note")
+  ]);
+  if(charsRes.error)throw charsRes.error;if(sugRes.error)throw sugRes.error;if(relRes.error)throw relRes.error;
+  const chars=charsRes.data??[],jade=chars.filter(ch=>ch.worlds?.name==="Jadebra");
+  const byId=new Map(jade.map(ch=>[ch.id,ch])),byName=new Map(jade.map(ch=>[nameKey(ch.name),ch]));
+  const anchors=new Set(),depth=new Map();
+  for(const ch of jade){
+    const manual=PK_SEED_SET.has(nameKey(ch.name))||(ch.tags??[]).includes("PK_SEED")||ch.source==="MANUAL";
+    if(manual){anchors.add(ch.id);depth.set(ch.id,0)}
+  }
+  const confirmedGraph=new Map();
+  for(const r of relRes.data??[]){
+    if(r.status!=="CONFIRMED")continue;
+    const a=byId.get(r.character_a_id),b=byId.get(r.character_b_id);if(!a||!b)continue;
+    if(!confirmedGraph.has(a.id))confirmedGraph.set(a.id,new Set());if(!confirmedGraph.has(b.id))confirmedGraph.set(b.id,new Set());
+    confirmedGraph.get(a.id).add(b.id);confirmedGraph.get(b.id).add(a.id);
+  }
+  const suggestionsBySource=new Map();
+  for(const s of sugRes.data??[]){if(!byId.has(s.character_id))continue;const arr=suggestionsBySource.get(s.character_id)??[];arr.push(s);suggestionsBySource.set(s.character_id,arr)}
+  const queue=[...anchors];
+  while(queue.length){
+    const sourceId=queue.shift(),sourceDepth=depth.get(sourceId)??0;
+    for(const next of confirmedGraph.get(sourceId)??[]){if(!depth.has(next)){depth.set(next,sourceDepth);queue.push(next)}}
+    for(const s of suggestionsBySource.get(sourceId)??[]){
+      const target=byName.get(nameKey(s.suggested_name));if(!target||target.id===sourceId||depth.has(target.id))continue;
+      if(!discoveryRule(sourceDepth,0,Number(s.match_count||0),s.first_match_date,s.last_match_date))continue;
+      depth.set(target.id,sourceDepth+1);queue.push(target.id);
+    }
+  }
+  const removed=[],kept=[],updates=[];
+  for(const ch of jade){
+    const isAnchor=anchors.has(ch.id),reachable=depth.has(ch.id);
+    const base=(ch.tags??[]).filter(t=>t!=="AUTO_NOISE"&&t!=="AUTO_DISCOVERED"&&!String(t).startsWith("DISCOVERY_DEPTH:"));
+    if(isAnchor){updates.push({id:ch.id,name:ch.name,monitored:true,tags:[...new Set([...base,"PK_SEED"])]});kept.push(ch);continue}
+    if(reachable){const d=Math.max(1,depth.get(ch.id)??1);updates.push({id:ch.id,name:ch.name,monitored:true,tags:[...new Set([...base.filter(t=>t!=="PK_SEED"),"AUTO_DISCOVERED","DISCOVERY_DEPTH:"+d])]});kept.push(ch);continue}
+    const automatic=(ch.tags??[]).includes("AUTO_DISCOVERED")||ch.source==="TIBIA_STALKER"||(ch.tags??[]).includes("AUTO_NOISE");
+    if(automatic){updates.push({id:ch.id,name:ch.name,monitored:false,online:false,confidence:"LOW",data_state:"DESCARTADO_SEM_SUPORTE",tags:[...new Set([...base.filter(t=>t!=="PK_SEED"),"AUTO_NOISE"])]});removed.push(ch)}
+  }
+  if(updates.length){const up=await db.from("characters").upsert(updates,{onConflict:"id"});if(up.error)throw up.error}
+  const scoreReset=await db.from("stalker_suggestions").update({relative_score:0}).neq("id","00000000-0000-0000-0000-000000000000");if(scoreReset.error)throw scoreReset.error;
+  const staleRel=await db.from("player_relations").delete().neq("status","CONFIRMED").ilike("manual_note","Correlação automática do Tibia Stalker%");if(staleRel.error)throw staleRel.error;
+  if(removed.length){const del=await db.from("identity_members").delete().in("character_id",removed.map(x=>x.id));if(del.error)throw del.error}
+  return {removed:removed.length,removedNames:removed.map(x=>x.name).sort(),kept:kept.length,anchors:anchors.size,reachable:depth.size};
+}
+
 async function reconcileClusters(db,clusters,byId,edgeList){
   const {data:existingRows,error}=await db.from("identity_groups").select("id,identity_members(character_id)");
   if(error)throw error;
@@ -45,6 +113,7 @@ async function reconcileClusters(db,clusters,byId,edgeList){
 }
 
 export async function rebuildAutomaticIdentities(db){
+  const cleanup=await pruneUnsupportedDiscoveries(db);
   const [charsRes,sugRes,relRes,deathRes]=await Promise.all([
     db.from("characters").select("id,name,monitored,tags,worlds(name)").eq("archived",false).eq("monitored",true),
     db.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date,characters(name,worlds(name))"),
@@ -84,5 +153,5 @@ export async function rebuildAutomaticIdentities(db){
 
   const clusters=[...componentMembers.values()].map(s=>[...s]).sort((a,b)=>b.length-a.length),grouped=clusters.filter(ids=>ids.length>1);
   const profiles=await reconcileClusters(db,grouped,byId,edgeList);
-  return {profiles,strongEdges:edgeList.length,chars:chars.length,isolated:clusters.filter(ids=>ids.length===1).length,largestCluster:Math.max(0,...clusters.map(ids=>ids.length))}
+  return {profiles,strongEdges:edgeList.length,chars:chars.length,isolated:clusters.filter(ids=>ids.length===1).length,largestCluster:Math.max(0,...clusters.map(ids=>ids.length)),cleanup}
 }

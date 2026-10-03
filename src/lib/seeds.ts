@@ -8,6 +8,7 @@ export const PK_SEED_NAMES=[
 "Rhashid","Lebesquedoh"
 ] as const;
 export const PK_SEED_SET=new Set(PK_SEED_NAMES.map(x=>x.toLowerCase()));
+export const MANUAL_IDENTITY_SETS=[["Rhashid","Muita Agua Xixica","Brazillian Jiu Jitsu"],["Malokeirah","Ninfaj"]];
 export function discoveryDepth(tags:string[]|null|undefined){if(tags?.includes("PK_SEED"))return 0;for(const t of tags??[]){const m=t.match(/^DISCOVERY_DEPTH:(\d+)$/);if(m)return Number(m[1])}return null}
 export const STALKER_HINT_MIN_MATCHES=10;
 export const STALKER_DISCOVERY_MIN_MATCHES=30;

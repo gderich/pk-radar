@@ -23,4 +23,5 @@ jobs:
       - run: node --check api/ring-sync.js
       - run: node --check api/public-who.js
       - run: node --check api/public-data.js
+      - run: node --check api/mapping-cleanup.js
       - run: npm run build

@@ -20,6 +20,12 @@ async function syncStalkerSuggestions(list){
       if(!r.ok)throw new Error("HTTP "+r.status);
       const j=await r.json();
       const items=Array.isArray(j?.possibleInvisibleCharacters)?j.possibleInvisibleCharacters:[];
+      const currentNames=new Set(items.map(x=>String(x.otherCharacterName||"").trim().toLowerCase()).filter(Boolean));
+      const old=await db.from("stalker_suggestions").select("id,suggested_name").eq("character_id",c.id);
+      if(!old.error){
+        const stale=(old.data??[]).filter(x=>!currentNames.has(String(x.suggested_name||"").trim().toLowerCase())).map(x=>x.id);
+        if(stale.length){const del=await db.from("stalker_suggestions").delete().in("id",stale);if(del.error)console.error("STALKER_STALE_DELETE",c.name,del.error.message)}
+      }
       for(const x of items){
         const name=String(x.otherCharacterName||"").trim();if(!name)continue;
         const matches=Number(x.numberOfMatches||0);

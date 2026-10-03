@@ -19,6 +19,12 @@ async function syncOne(db,character){
   if(!r.ok)throw new Error("Tibia Stalker HTTP "+r.status);
   const j=await r.json();
   const items=Array.isArray(j?.possibleInvisibleCharacters)?j.possibleInvisibleCharacters:[];
+  const currentNames=new Set(items.map(x=>String(x.otherCharacterName||"").trim().toLowerCase()).filter(Boolean));
+  const old=await db.from("stalker_suggestions").select("id,suggested_name").eq("character_id",character.id);
+  if(!old.error){
+    const stale=(old.data??[]).filter(x=>!currentNames.has(String(x.suggested_name||"").trim().toLowerCase())).map(x=>x.id);
+    if(stale.length){const del=await db.from("stalker_suggestions").delete().in("id",stale);if(del.error)console.warn("stalker stale delete",character.name,del.error.message)}
+  }
   const rows=items.map(x=>({
     character_id:character.id,
     suggested_name:String(x.otherCharacterName||"").trim(),
