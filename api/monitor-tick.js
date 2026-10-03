@@ -1,5 +1,6 @@
 import {createClient} from "@supabase/supabase-js";
 import {scanPvpKills} from "../shared/pvp-scan.mjs";
+import {ensureEvidenceCleanupV6,rebuildAutomaticIdentities} from "../worker/identity.mjs";
 
 function authorized(req){
   const expected=process.env.CRON_SECRET||process.env.MONITOR_CRON_SECRET;
@@ -53,13 +54,16 @@ export default async function handler(req,res){
 
   const db=createClient(url,secret,{auth:{persistSession:false}});
   try{
+    const cleanup=await ensureEvidenceCleanupV6(db);
+    let mapping=null;
+    if(cleanup.ran)mapping=await rebuildAutomaticIdentities(db);
     const result=await scanPvpKills(db,{batchSize:48,minimumGapMs:45000,caller:"SERVER_CRON"});
     const telegram=[];
     for(const item of result.newAlertItems??[]){
       try{telegram.push({victim:item.victim,...await sendTelegram(item)})}
       catch(e){telegram.push({victim:item.victim,sent:false,error:e instanceof Error?e.message:String(e)})}
     }
-    return res.status(200).json({...result,telegram});
+    return res.status(200).json({...result,telegram,cleanup,mapping});
   }catch(e){
     const msg=e instanceof Error?e.message:String(e);
     try{await db.from("source_syncs").update({status:"ERROR",last_error:"Server cron kill scan: "+msg,updated_at:new Date().toISOString()}).eq("source","TIBIADATA")}catch{}
