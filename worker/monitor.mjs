@@ -1,6 +1,6 @@
 import {createClient} from "@supabase/supabase-js";
 const URL=process.env.SUPABASE_URL;const KEY=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!URL||!KEY)throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-const db=createClient(URL,KEY,{auth:{persistSession:false}});const {syncPublicSources}=await import("./sources.mjs");const {rebuildAutomaticIdentities}=await import("./identity.mjs");const {watchPvpKills}=await import("./pvp-watch.mjs");const {PK_SEED_SET,discoveryDepth,discoveryRule}=await import("./seeds.mjs");const WS_URL=process.env.TIBIA_STALKER_WS||"wss://api.tibiastalker.pl/connection-hub";const API_URL="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
+const db=createClient(URL,KEY,{auth:{persistSession:false}});const {syncPublicSources}=await import("./sources.mjs");const {rebuildAutomaticIdentities}=await import("./identity.mjs");const {watchPvpKills}=await import("./pvp-watch.mjs");const {PK_SEED_SET,discoveryDepth,discoveryRule,stalkerEvidence}=await import("./seeds.mjs");const WS_URL=process.env.TIBIA_STALKER_WS||"wss://api.tibiastalker.pl/connection-hub";const API_URL="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
 let socket=null;let subscribed=new Set();let deepCounter=0;let reconnectTimer=null;let reconnectAttempt=0;
 async function chars(){const {data,error}=await db.from("characters").select("id,name,online,tags,worlds(name),guilds(name)").eq("archived",false).eq("monitored",true).order("name");if(error)throw error;return (data??[]).map(x=>({...x,world_name:x.worlds?.name??null,guild_name:x.guilds?.name??null})).filter(x=>x.world_name==="Jadebra"&&(PK_SEED_SET.has(String(x.name).toLowerCase())||(x.tags??[]).includes("PK_SEED")||(x.tags??[]).includes("AUTO_DISCOVERED")))}
 function charRank(x,name){let score=0;if((x.tags??[]).includes("PK_SEED"))score+=1000;if(x.source==="MANUAL")score+=300;if(!x.archived)score+=150;if(x.monitored)score+=100;if(String(x.name)===String(name).trim())score+=50;return score}
@@ -20,31 +20,31 @@ async function syncStalkerSuggestions(list){
       if(!r.ok)throw new Error("HTTP "+r.status);
       const j=await r.json();
       const items=Array.isArray(j?.possibleInvisibleCharacters)?j.possibleInvisibleCharacters:[];
-      const max=Math.max(0,...items.map(x=>Number(x.numberOfMatches||0)));
       for(const x of items){
         const name=String(x.otherCharacterName||"").trim();if(!name)continue;
         const matches=Number(x.numberOfMatches||0);
-        const score=max?Math.round(matches/max*10000)/100:0;
+        const first=toDateOnly(x.firstMatchDateOnly),last=toDateOnly(x.lastMatchDateOnly);
+        const ev=stalkerEvidence(matches,first,last);
         await db.from("stalker_suggestions").upsert({
           character_id:c.id,suggested_name:name,match_count:matches,
-          first_match_date:toDateOnly(x.firstMatchDateOnly),
-          last_match_date:toDateOnly(x.lastMatchDateOnly),
-          relative_score:score,fetched_at:new Date().toISOString(),raw_data:x
+          first_match_date:first,
+          last_match_date:last,
+          relative_score:0,fetched_at:new Date().toISOString(),raw_data:{...x,scoreModel:"MATCH_COUNT_ONLY_V2"}
         },{onConflict:"character_id,suggested_name"});
         let other=await findCharByName(name);
         const depth=discoveryDepth(c.tags??[]);
-        if(discoveryRule(depth,score,matches)){
+        if(discoveryRule(depth,0,matches,first,last)){
           const total=(await db.from("characters").select("id",{count:"exact",head:true}).eq("monitored",true)).count??0;
           if(total<150&&await isJadebraCharacter(name)){
             const nextDepth=(depth??0)+1;
             const tags=other?.tags?.includes("PK_SEED")?other.tags:[...new Set([...(other?.tags??[]).filter(t=>t!=="AUTO_NOISE"&&!String(t).startsWith("DISCOVERY_DEPTH:")),"AUTO_DISCOVERED","DISCOVERY_DEPTH:"+nextDepth])];
             if(other?.id){
               await db.from("characters").update({monitored:true,archived:false,tags}).eq("id",other.id);
-              console.log("reativado por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches);
+              console.log("reativado por evidência absoluta do Tibia Stalker",name,"a partir de",c.name,matches+" matches",ev.spanDays+" dias");
             }else{
               const {data:world}=await db.from("worlds").upsert({name:"Jadebra"},{onConflict:"name"}).select("id").single();
               const added=await db.from("characters").insert({name,world_id:world?.id??null,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags}).select("id,tags").single();
-              if(added.data?.id){other=added.data;console.log("auto-descoberto por correlação >=95% e >=10 matches",name,"a partir de",c.name,score,matches)}
+              if(added.data?.id){other=added.data;console.log("auto-descoberto por evidência absoluta do Tibia Stalker",name,"a partir de",c.name,matches+" matches",ev.spanDays+" dias")}
             }
           }
         }
@@ -55,23 +55,23 @@ async function syncStalkerSuggestions(list){
             let rel=existing;
             if(existing?.id){
               const u=await db.from("player_relations").update({
-                status:score>=80?"HIGH":score>=40?"MEDIUM":"LOW",
-                confidence_score:Math.min(95,score),
-                manual_note:"Correlação automática do Tibia Stalker por padrões de login/logout"
+                status:ev.autoGroup?"HIGH":ev.autoDiscover?"MEDIUM":"LOW",
+                confidence_score:ev.internalStrength,
+                manual_note:"Correlação automática do Tibia Stalker por matches absolutos; não é porcentagem de probabilidade"
               }).eq("id",existing.id).select("id,status").single();rel=u.data;
             }else{
               const u=await db.from("player_relations").insert({
                 character_a_id:ids[0],character_b_id:ids[1],
-                status:score>=80?"HIGH":score>=40?"MEDIUM":"LOW",
-                confidence_score:Math.min(95,score),
-                manual_note:"Correlação automática do Tibia Stalker por padrões de login/logout"
+                status:ev.autoGroup?"HIGH":ev.autoDiscover?"MEDIUM":"LOW",
+                confidence_score:ev.internalStrength,
+                manual_note:"Correlação automática do Tibia Stalker por matches absolutos; não é porcentagem de probabilidade"
               }).select("id,status").single();rel=u.data;
             }
             if(rel?.id)await db.from("relation_evidence").upsert({
               relation_id:rel.id,source:"TIBIA_STALKER",evidence_type:"STALKER_CORRELATION",
-              summary:matches+" correspondências de login/logout no Tibia Stalker",
-              weight:Math.min(95,score),fetched_at:new Date().toISOString(),
-              reference_url:API_URL+encodeURIComponent(c.name),raw_data:x
+              summary:matches+" matches de login/logout no Tibia Stalker em "+ev.spanDays+" dias; nível "+ev.level,
+              weight:ev.internalStrength,fetched_at:new Date().toISOString(),
+              reference_url:API_URL+encodeURIComponent(c.name),raw_data:{...x,scoreModel:"MATCH_COUNT_ONLY_V2"}
             },{onConflict:"relation_id,evidence_type,source"});
           }
         }

@@ -9,4 +9,26 @@ export const PK_SEED_NAMES=[
 ];
 export const PK_SEED_SET=new Set(PK_SEED_NAMES.map(x=>x.toLowerCase()));
 export function discoveryDepth(tags=[]){if(tags.includes("PK_SEED"))return 0;for(const t of tags){const m=String(t).match(/^DISCOVERY_DEPTH:(\d+)$/);if(m)return Number(m[1])}return null}
-export function discoveryRule(depth,score,matches){return depth!==null&&score>=95&&matches>=10}
+export const STALKER_HINT_MIN_MATCHES=10;
+export const STALKER_DISCOVERY_MIN_MATCHES=30;
+export const STALKER_GROUP_MIN_MATCHES=50;
+export function stalkerSpanDays(first,last){
+  if(!first||!last)return 0;
+  const a=new Date(String(first).slice(0,10)+"T00:00:00Z").getTime(),b=new Date(String(last).slice(0,10)+"T00:00:00Z").getTime();
+  return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,Math.round((b-a)/86400000)):0;
+}
+export function stalkerEvidence(matches,first,last){
+  const m=Math.max(0,Number(matches||0)),span=stalkerSpanDays(first,last);
+  const autoGroup=m>=100||(m>=STALKER_GROUP_MIN_MATCHES&&span>=7);
+  const autoDiscover=m>=80||(m>=STALKER_DISCOVERY_MIN_MATCHES&&span>=7);
+  const level=autoGroup?(m>=100?"MUITO FORTE":"FORTE"):autoDiscover?"MODERADA":m>=STALKER_HINT_MIN_MATCHES?"FRACA":"INSUFICIENTE";
+  const rank=autoGroup?4:autoDiscover?3:m>=STALKER_HINT_MIN_MATCHES?2:1;
+  const internalStrength=autoGroup?(m>=100?95:85):autoDiscover?60:m>=STALKER_HINT_MIN_MATCHES?30:10;
+  return {matches:m,spanDays:span,autoGroup,autoDiscover,level,rank,internalStrength};
+}
+export function discoveryRule(depth,_legacyScore,matches,first,last){
+  if(depth===null)return false;
+  const e=stalkerEvidence(matches,first,last);
+  if(depth===0)return e.autoDiscover;
+  return matches>=100||(matches>=50&&e.spanDays>=14);
+}

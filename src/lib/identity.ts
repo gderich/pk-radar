@@ -1,6 +1,6 @@
 import {supabase} from "./supabase";
 import {TARGET_WORLD} from "./data";
-import {PK_SEED_SET} from "./seeds";
+import {PK_SEED_SET,stalkerEvidence} from "./seeds";
 
 type Edge={a:string;b:string;strength:number;matches:number;kind:string};
 type ExistingGroup={id:string;memberIds:Set<string>};
@@ -95,7 +95,9 @@ async function reconcileClusters(
     const max=Math.max(0,...internal.map(e=>e.strength));
     const label=cs.slice(0,4).map((x:any)=>x.name).join(" / ")+(cs.length>4?" +"+(cs.length-4):"");
     const confidence=max===100&&internal.length>0&&internal.every(e=>e.strength===100)?"CONFIRMED":"HIGH";
-    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes · confiança média "+avg+"% · sem limite artificial de tamanho";
+    const stalkerMatches=internal.filter(e=>e.kind==="STALKER_MATCHES").map(e=>e.matches);
+    const evidenceText=stalkerMatches.length?" · Stalker mínimo "+Math.min(...stalkerMatches)+" matches":"";
+    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes"+evidenceText+" · sem percentual artificial";
 
     const {error:updateError}=await supabase.from("identity_groups").update({
       label,confidence,notes,updated_at:new Date().toISOString()
@@ -196,16 +198,12 @@ export async function rebuildAutomaticIdentities(){
     const ab=directed.get(a.id+">"+b.id),ba=directed.get(b.id+">"+a.id);
     const arr=[ab,ba].filter(Boolean);
     if(!arr.length)continue;
-    const best=[...arr].sort((x:any,y:any)=>Number(y.relative_score||0)-Number(x.relative_score||0)||Number(y.match_count||0)-Number(x.match_count||0))[0];
-    const bestScore=Number(best.relative_score||0),bestMatches=Number(best.match_count||0);
-    let strength=0,kind="";
-    if(bestScore>=95&&bestMatches>=10){
-      strength=Math.min(99,Math.round(bestScore));
-      kind="STALKER_PERCENT";
-    }
-    if(strength){
+    const best=[...arr].sort((x:any,y:any)=>Number(y.match_count||0)-Number(x.match_count||0))[0];
+    const bestMatches=Number(best.match_count||0);
+    const evidence=stalkerEvidence(bestMatches,best.first_match_date,best.last_match_date);
+    if(evidence.autoGroup){
       const key=pairKey(a.id,b.id),old=edges.get(key);
-      if(!old||strength>old.strength)edges.set(key,{a:a.id,b:b.id,strength,matches:bestMatches,kind});
+      if(!old||evidence.internalStrength>old.strength)edges.set(key,{a:a.id,b:b.id,strength:evidence.internalStrength,matches:bestMatches,kind:"STALKER_MATCHES"});
     }
   }
 

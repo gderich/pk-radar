@@ -3,6 +3,9 @@ import {createClient} from "@supabase/supabase-js";
 const WORLD="Jadebra";
 const cmp=(a,b)=>String(a??"").localeCompare(String(b??""),"pt-BR",{sensitivity:"base"});
 const origin=tags=>Array.isArray(tags)&&tags.includes("PK_SEED")?"ADICIONADO POR VOCÊ":"DESCOBERTO PELO SISTEMA";
+function stalkerSpanDays(first,last){if(!first||!last)return 0;const a=new Date(String(first).slice(0,10)+"T00:00:00Z").getTime(),b=new Date(String(last).slice(0,10)+"T00:00:00Z").getTime();return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,Math.round((b-a)/86400000)):0}
+function stalkerEvidence(matches,first,last){const m=Math.max(0,Number(matches||0)),span=stalkerSpanDays(first,last);const autoGroup=m>=100||(m>=50&&span>=7),autoDiscover=m>=80||(m>=30&&span>=7);const level=autoGroup?(m>=100?"MUITO FORTE":"FORTE"):autoDiscover?"MODERADA":m>=10?"FRACA":"INSUFICIENTE";const tone=autoGroup?"good":autoDiscover?"warn":"neutral";const internalStrength=autoGroup?(m>=100?95:85):autoDiscover?60:m>=10?30:10;return {matches:m,spanDays:span,autoGroup,autoDiscover,level,tone,internalStrength}}
+
 
 async function safe(query,fallback=[]){
   const r=await query;
@@ -98,8 +101,9 @@ export default async function handler(req,res){
 
     const suggestionRows=suggestions.filter(s=>activeIds.has(s.character_id)).map(s=>({
       character:activeById.get(s.character_id)?.name??null,
-      suggestedName:s.suggested_name,matchCount:Number(s.match_count||0),score:Number(s.relative_score||0),
-      first:s.first_match_date??null,last:s.last_match_date??null
+      suggestedName:s.suggested_name,matchCount:Number(s.match_count||0),
+      first:s.first_match_date??null,last:s.last_match_date??null,
+      ...stalkerEvidence(Number(s.match_count||0),s.first_match_date,s.last_match_date)
     })).filter(s=>s.character);
 
     // Sanitized read-only evidence graph used by the public "Ver caminho" explorer.
@@ -115,11 +119,11 @@ export default async function handler(req,res){
     }
     for(const s of suggestionRows){
       const b=characters.find(c=>c.name.toLowerCase()===String(s.suggestedName||"").toLowerCase());
-      if(!b||Number(s.score||0)<95||Number(s.matchCount||0)<10)continue;
+      if(!b||!s.autoGroup)continue;
       const key=edgeKey(s.character,b.name),old=evidenceByPair.get(key);
       if(old?.kind==="PUBLIC_ACCOUNT")continue;
-      const edge={from:s.character,to:b.name,kind:"STALKER_PERCENT",score:Number(s.score||0),matches:Number(s.matchCount||0),first:s.first??null,last:s.last??null};
-      if(!old||Number(edge.score)>Number(old.score||0)||(Number(edge.score)===Number(old.score||0)&&Number(edge.matches)>Number(old.matches||0)))evidenceByPair.set(key,edge);
+      const edge={from:s.character,to:b.name,kind:"STALKER_MATCHES",score:s.internalStrength,matches:Number(s.matchCount||0),level:s.level,spanDays:s.spanDays,first:s.first??null,last:s.last??null};
+      if(!old||Number(edge.matches)>Number(old.matches||0))evidenceByPair.set(key,edge);
     }
     const evidenceLinks=[...evidenceByPair.values()];
 
