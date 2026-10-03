@@ -2,7 +2,6 @@ name: PK Radar - PvP Monitor
 
 on:
   schedule:
-    # Fallback autônomo. O monitor principal pode ser chamado externamente a cada 1 minuto.
     - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
@@ -16,9 +15,11 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     steps:
-      - name: Disparar monitor server-side
+      - uses: actions/checkout@v4
+
+      - name: Validar segredo do monitor
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -27,4 +28,14 @@ jobs:
             exit 1
           fi
 
-          curl --fail-with-body             --retry 3             --retry-delay 5             --max-time 90             -X POST "https://pk-radar.vercel.app/api/monitor-tick"             -H "Authorization: Bearer $CRON_SECRET"             -H "Content-Type: application/json"             --data '{}'
+      - name: Reconciliação TibiaData
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body             --retry 2             --retry-delay 3             --max-time 90             -X POST "https://pk-radar.vercel.app/api/monitor-tick"             -H "Authorization: Bearer $CRON_SECRET"             -H "Content-Type: application/json"             --data '{}'
+
+      - name: Kills diretas pelo TibiaRing
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PK_RADAR_BASE_URL: https://pk-radar.vercel.app
+        run: node scripts/ring-kill-monitor.mjs
