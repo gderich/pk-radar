@@ -30,7 +30,13 @@ export async function ensureAutonomousResetV4(){
       :[...(ch.tags??[]).filter((t:string)=>t!=="PK_SEED"&&!t.startsWith("DISCOVERY_DEPTH:")),"AUTO_NOISE"];
     return {id:ch.id,name:ch.name,tags,monitored:seed,archived:false,confidence:"LOW"};
   });
-  if(updates.length){const u=await supabase.from("characters").upsert(updates,{onConflict:"id"});if(u.error)throw u.error}
+  if(updates.length){
+    for(const row of updates){
+      const {id,...patch}=row;
+      const u=await supabase.from("characters").update(patch).eq("id",id);
+      if(u.error)throw u.error;
+    }
+  }
 
   const nextConfig={...config,identity_mapping_version:4,identity_mapping_reset_at:new Date().toISOString(),mapping_anchor:"PK_SEEDS"};
   if(row?.id){
@@ -135,7 +141,13 @@ export async function pruneUnsupportedDiscoveries(){
       removed.push(ch);
     }
   }
-  if(updates.length){const up=await supabase.from("characters").upsert(updates,{onConflict:"id"});if(up.error)throw up.error}
+  if(updates.length){
+    for(const row of updates){
+      const {id,...patch}=row;
+      const up=await supabase.from("characters").update(patch).eq("id",id);
+      if(up.error)throw up.error;
+    }
+  }
 
   const scoreReset=await supabase.from("stalker_suggestions").update({relative_score:0}).neq("id","00000000-0000-0000-0000-000000000000");
   if(scoreReset.error)throw scoreReset.error;

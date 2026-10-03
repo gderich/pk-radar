@@ -62,7 +62,13 @@ export async function pruneUnsupportedDiscoveries(db){
     const automatic=(ch.tags??[]).includes("AUTO_DISCOVERED")||ch.source==="TIBIA_STALKER"||(ch.tags??[]).includes("AUTO_NOISE");
     if(automatic){updates.push({id:ch.id,name:ch.name,monitored:false,online:false,confidence:"LOW",data_state:"DESCARTADO_SEM_SUPORTE",tags:[...new Set([...base.filter(t=>t!=="PK_SEED"),"AUTO_NOISE"])]});removed.push(ch)}
   }
-  if(updates.length){const up=await db.from("characters").upsert(updates,{onConflict:"id"});if(up.error)throw up.error}
+  if(updates.length){
+    for(const row of updates){
+      const {id,...patch}=row;
+      const up=await db.from("characters").update(patch).eq("id",id);
+      if(up.error)throw up.error;
+    }
+  }
   const scoreReset=await db.from("stalker_suggestions").update({relative_score:0}).neq("id","00000000-0000-0000-0000-000000000000");if(scoreReset.error)throw scoreReset.error;
   const staleRel=await db.from("player_relations").delete().neq("status","CONFIRMED").ilike("manual_note","Correlação automática do Tibia Stalker%");if(staleRel.error)throw staleRel.error;
   if(removed.length){const del=await db.from("identity_members").delete().in("character_id",removed.map(x=>x.id));if(del.error)throw del.error}
