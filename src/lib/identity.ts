@@ -160,13 +160,13 @@ export async function pruneUnsupportedDiscoveries(){
   }
   return {removed:removed.length,removedNames:removed.map(x=>x.name).sort(),kept:kept.length,anchors:anchors.size,reachable:depth.size};
 }
-export async function ensureEvidenceCleanupV5(){
+export async function ensureEvidenceCleanupV6(){
   const {data:row,error}=await supabase.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
   if(error)throw error;
   const config=(row?.config&&typeof row.config==="object")?row.config as Record<string,any>:{};
-  if(Number(config.identity_mapping_version||0)>=5)return false;
+  if(Number(config.identity_mapping_version||0)>=6)return false;
   const result=await pruneUnsupportedDiscoveries();
-  const nextConfig={...config,identity_mapping_version:5,evidence_cleanup_at:new Date().toISOString(),evidence_cleanup_removed:result.removed,evidence_cleanup_removed_names:result.removedNames,evidence_cleanup_reachable:result.reachable,score_model:"MATCH_COUNT_ONLY_V2"};
+  const nextConfig={...config,identity_mapping_version:6,evidence_cleanup_v6_at:new Date().toISOString(),evidence_cleanup_v6_removed:result.removed,evidence_cleanup_v6_removed_names:result.removedNames,evidence_cleanup_v6_reachable:result.reachable,score_model:"MATCH_COUNT_ONLY_V2",evidence_cleanup_v6_rule:"ANCHOR_REACHABILITY_MATCH_COUNT_ONLY"};
   if(row?.id){const u=await supabase.from("source_syncs").update({config:nextConfig}).eq("id",row.id);if(u.error)throw u.error}
   else{const u=await supabase.from("source_syncs").upsert({source:"MANUAL",enabled:true,status:"SUCCESS",config:nextConfig},{onConflict:"source"});if(u.error)throw u.error}
   return result;
