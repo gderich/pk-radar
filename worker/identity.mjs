@@ -1,4 +1,4 @@
-import {PK_SEED_SET} from "./seeds.mjs";
+import {PK_SEED_SET,stalkerEvidence} from "./seeds.mjs";
 function pairKey(a,b){return [a,b].sort().join(":")}
 function overlapCount(a,b){let n=0;for(const x of a)if(b.has(x))n++;return n}
 async function reconcileClusters(db,clusters,byId,edgeList){
@@ -26,7 +26,9 @@ async function reconcileClusters(db,clusters,byId,edgeList){
     const avg=internal.length?Math.round(internal.reduce((n,e)=>n+e.strength,0)/internal.length):0,max=Math.max(0,...internal.map(e=>e.strength));
     const label=cs.slice(0,4).map(x=>x.name).join(" / ")+(cs.length>4?" +"+(cs.length-4):"");
     const confidence=max===100&&internal.length>0&&internal.every(e=>e.strength===100)?"CONFIRMED":"HIGH";
-    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes · confiança média "+avg+"% · sem limite artificial de tamanho";
+    const stalkerMatches=internal.filter(e=>e.kind==="STALKER_MATCHES").map(e=>e.matches);
+    const evidenceText=stalkerMatches.length?" · Stalker mínimo "+Math.min(...stalkerMatches)+" matches":"";
+    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes"+evidenceText+" · sem percentual artificial";
     const upGroup=await db.from("identity_groups").update({label,confidence,notes,updated_at:new Date().toISOString()}).eq("id",groupId);if(upGroup.error)throw upGroup.error;
 
     const current=chosen?.memberIds??new Set();
@@ -68,10 +70,9 @@ export async function rebuildAutomaticIdentities(db){
   for(let i=0;i<chars.length;i++)for(let j=i+1;j<chars.length;j++){
     const a=chars[i],b=chars[j];if(coKillPairs.has(pairKey(a.id,b.id)))continue;
     const ab=directed.get(a.id+">"+b.id),ba=directed.get(b.id+">"+a.id),arr=[ab,ba].filter(Boolean);if(!arr.length)continue;
-    const best=[...arr].sort((x,y)=>Number(y.relative_score||0)-Number(x.relative_score||0)||Number(y.match_count||0)-Number(x.match_count||0))[0],bestScore=Number(best.relative_score||0),bestMatches=Number(best.match_count||0);
-    let strength=0,kind="";
-    if(bestScore>=95&&bestMatches>=10){strength=Math.min(99,Math.round(bestScore));kind="STALKER_PERCENT"}
-    if(strength){const key=pairKey(a.id,b.id),old=edges.get(key);if(!old||strength>old.strength)edges.set(key,{a:a.id,b:b.id,strength,matches:bestMatches,kind})}
+    const best=[...arr].sort((x,y)=>Number(y.match_count||0)-Number(x.match_count||0))[0],bestMatches=Number(best.match_count||0);
+    const evidence=stalkerEvidence(bestMatches,best.first_match_date,best.last_match_date);
+    if(evidence.autoGroup){const key=pairKey(a.id,b.id),old=edges.get(key);if(!old||evidence.internalStrength>old.strength)edges.set(key,{a:a.id,b:b.id,strength:evidence.internalStrength,matches:bestMatches,kind:"STALKER_MATCHES"})}
   }
 
   const parent=new Map(),componentMembers=new Map();for(const c of chars){parent.set(c.id,c.id);componentMembers.set(c.id,new Set([c.id]))}
