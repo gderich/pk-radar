@@ -1,4 +1,4 @@
-name: One-time mapping cleanup v5
+name: One-time mapping cleanup v6
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Run one-time cleanup
+      - name: Run one-time cleanup v6
         run: |
           sleep 35
-          curl --fail-with-body --retry 3 --retry-delay 4 --max-time 120             "https://pk-radar.vercel.app/api/one-time-cleanup?confirm=v5"
+          curl --fail-with-body --retry 3 --retry-delay 4 --max-time 120             "https://pk-radar.vercel.app/api/one-time-cleanup?confirm=v6"

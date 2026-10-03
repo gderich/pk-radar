@@ -21,9 +21,18 @@ export default async function handler(req,res){
     const result=await rebuildAutomaticIdentities(db);
     const {data:row}=await db.from("source_syncs").select("id,config").eq("source","MANUAL").maybeSingle();
     const config=(row?.config&&typeof row.config==="object")?row.config:{};
-    const next={...config,identity_mapping_version:5,evidence_cleanup_at:new Date().toISOString(),evidence_cleanup_removed:Number(result?.cleanup?.removed||0),evidence_cleanup_removed_names:result?.cleanup?.removedNames??[],evidence_cleanup_reachable:Number(result?.cleanup?.reachable||0),score_model:"MATCH_COUNT_ONLY_V2"};
-    if(row?.id)await db.from("source_syncs").update({config:next}).eq("id",row.id);
-    else await db.from("source_syncs").upsert({source:"MANUAL",enabled:true,status:"SUCCESS",config:next},{onConflict:"source"});
+    const next={
+      ...config,
+      identity_mapping_version:6,
+      evidence_cleanup_v6_at:new Date().toISOString(),
+      evidence_cleanup_v6_removed:Number(result?.cleanup?.removed||0),
+      evidence_cleanup_v6_removed_names:result?.cleanup?.removedNames??[],
+      evidence_cleanup_v6_reachable:Number(result?.cleanup?.reachable||0),
+      evidence_cleanup_v6_rule:"ANCHOR_REACHABILITY_MATCH_COUNT_ONLY",
+      score_model:"MATCH_COUNT_ONLY_V2"
+    };
+    if(row?.id)await db.from("source_syncs").update({config:next,updated_at:new Date().toISOString()}).eq("id",row.id);
+    else await db.from("source_syncs").upsert({source:"MANUAL",enabled:true,status:"SUCCESS",config:next,updated_at:new Date().toISOString()},{onConflict:"source"});
     return res.status(200).json({ok:true,...result});
   }catch(e){
     console.error("mapping-cleanup",e);
