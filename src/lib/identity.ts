@@ -95,7 +95,9 @@ async function reconcileClusters(
     const max=Math.max(0,...internal.map(e=>e.strength));
     const label=cs.slice(0,4).map((x:any)=>x.name).join(" / ")+(cs.length>4?" +"+(cs.length-4):"");
     const confidence=max===100&&internal.length>0&&internal.every(e=>e.strength===100)?"CONFIRMED":"HIGH";
-    const stalkerMatches=internal.filter(e=>e.kind==="STALKER_MATCHES").map(e=>e.matches);\n    const evidenceText=stalkerMatches.length?" · Stalker mínimo "+Math.min(...stalkerMatches)+" matches":"";\n    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes"+evidenceText+" · sem percentual artificial";
+    const stalkerMatches=internal.filter(e=>e.kind==="STALKER_MATCHES").map(e=>e.matches);
+    const evidenceText=stalkerMatches.length?" · Stalker mínimo "+Math.min(...stalkerMatches)+" matches":"";
+    const notes="AUTO · "+ids.length+" chars · "+internal.length+" relações fortes"+evidenceText+" · sem percentual artificial";
 
     const {error:updateError}=await supabase.from("identity_groups").update({
       label,confidence,notes,updated_at:new Date().toISOString()
