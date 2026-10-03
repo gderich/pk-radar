@@ -1,17 +1,10 @@
-import {createHash,timingSafeEqual} from "node:crypto";
 import {createClient} from "@supabase/supabase-js";
 import {rebuildAutomaticIdentities} from "../worker/identity.mjs";
-
-const EXPECTED_HASH="d183fb18223d7337226b66af58419aea37ae01dc46d7c3e8b1b3486d807adc38";
-function validToken(v){
-  const got=createHash("sha256").update(String(v||"")).digest("hex");
-  return timingSafeEqual(Buffer.from(got,"hex"),Buffer.from(EXPECTED_HASH,"hex"));
-}
 
 export default async function handler(req,res){
   res.setHeader("Cache-Control","no-store");
   if(req.method!=="GET")return res.status(405).json({error:"Method not allowed"});
-  if(!validToken(req.query?.token))return res.status(401).json({error:"Unauthorized"});
+  if(String(req.query?.confirm||"")!=="v5")return res.status(400).json({error:"confirm=v5 required"});
   const url=process.env.SUPABASE_URL||process.env.VITE_SUPABASE_URL;
   const key=process.env.SUPABASE_SECRET_KEY||process.env.SUPABASE_SERVICE_ROLE_KEY;
   if(!url||!key)return res.status(503).json({error:"Supabase server credentials are not configured"});
