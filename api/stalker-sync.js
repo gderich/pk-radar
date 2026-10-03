@@ -3,6 +3,8 @@ import {createClient} from "@supabase/supabase-js";
 const API="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
 
 function dateOnly(v){const s=String(v||"").slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null}
+function spanDays(first,last){if(!first||!last)return 0;const a=new Date(first+"T00:00:00Z").getTime(),b=new Date(last+"T00:00:00Z").getTime();return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,Math.round((b-a)/86400000)):0}
+function evidence(matches,first,last){const m=Number(matches||0),span=spanDays(first,last);return {autoDiscover:m>=80||(m>=30&&span>=7),autoGroup:m>=100||(m>=50&&span>=7),span}}
 
 async function authUser(req,db){
   const h=req.headers.authorization||"";
@@ -17,16 +19,15 @@ async function syncOne(db,character){
   if(!r.ok)throw new Error("Tibia Stalker HTTP "+r.status);
   const j=await r.json();
   const items=Array.isArray(j?.possibleInvisibleCharacters)?j.possibleInvisibleCharacters:[];
-  const max=Math.max(0,...items.map(x=>Number(x.numberOfMatches||0)));
   const rows=items.map(x=>({
     character_id:character.id,
     suggested_name:String(x.otherCharacterName||"").trim(),
     match_count:Number(x.numberOfMatches||0),
     first_match_date:dateOnly(x.firstMatchDateOnly),
     last_match_date:dateOnly(x.lastMatchDateOnly),
-    relative_score:max?Math.round(Number(x.numberOfMatches||0)/max*10000)/100:0,
+    relative_score:0,
     fetched_at:new Date().toISOString(),
-    raw_data:x
+    raw_data:{...x,scoreModel:"MATCH_COUNT_ONLY_V2"}
   })).filter(x=>x.suggested_name);
   let persistError=null;
   if(rows.length){
@@ -34,7 +35,7 @@ async function syncOne(db,character){
     if(error)persistError=error.message;
   }
   let autoAdded=0;
-  for(const x of rows.filter(x=>x.relative_score>=80&&x.match_count>=10).slice(0,2)){
+  for(const x of rows.filter(x=>evidence(x.match_count,x.first_match_date,x.last_match_date).autoDiscover).sort((a,b)=>b.match_count-a.match_count).slice(0,2)){
     const {data:existing}=await db.from("characters").select("id").ilike("name",x.suggested_name).maybeSingle();
     if(existing)continue;
     const {error}=await db.from("characters").insert({name:x.suggested_name,monitored:true,source:"TIBIA_STALKER",data_state:"AUTO_DESCOBERTO",confidence:"MEDIUM",tags:["AUTO_DISCOVERED"]});
