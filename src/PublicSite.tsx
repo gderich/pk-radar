@@ -1,5 +1,5 @@
 import {useEffect,useMemo,useState} from "react";
-import {Activity,Bell,Database,LayoutDashboard,Network,Search,Skull,Swords,Users,Wifi} from "lucide-react";
+import {Activity,Bell,Database,LayoutDashboard,Network,Search,Share2,Skull,Swords,Users,Wifi} from "lucide-react";
 import {Link,NavLink,Navigate,Route,Routes,useLocation,useParams} from "react-router-dom";
 
 const nav=[
@@ -32,6 +32,8 @@ function usePublicData(){
   return {data,error};
 }
 
+function PublicShareButton(){const [copied,setCopied]=useState(false);const loc=useLocation();async function share(){const url=window.location.origin+loc.pathname;const title="PK Radar — Painel público";try{if(navigator.share){await navigator.share({title,text:"PK Radar em modo público e somente leitura.",url});return}await navigator.clipboard.writeText(url);setCopied(true);window.setTimeout(()=>setCopied(false),2200)}catch(e:any){if(e?.name==="AbortError")return;try{await navigator.clipboard.writeText(url);setCopied(true);window.setTimeout(()=>setCopied(false),2200)}catch{window.prompt("Copie este link:",url)}}}return <button className={"share-public-btn "+(copied?"copied":"")} onClick={()=>void share()} title="Compartilhar esta página pública"><Share2 size={14}/>{copied?"Link copiado!":"Compartilhar"}</button>}
+
 function PublicLayout({children,data}:{children:React.ReactNode;data:any}){
   const loc=useLocation();
   const current=nav.find(([to])=>loc.pathname.startsWith(to))?.[1]??"Dashboard";
@@ -43,7 +45,7 @@ function PublicLayout({children,data}:{children:React.ReactNode;data:any}){
       <div className="public-share-note">Somente leitura<br/><small>Dados atualizados automaticamente.</small></div>
     </aside>
     <main>
-      <header><span className="crumb">PAINEL PÚBLICO / <b>{current}</b></span><div className="header-right"><span className="realtime"><span/>MONITORAMENTO</span></div></header>
+      <header><span className="crumb">PAINEL PÚBLICO / <b>{current}</b></span><div className="header-right"><PublicShareButton/><span className="realtime"><span/>MONITORAMENTO</span></div></header>
       <div className="content">{children}</div>
       <div className="public-site-footer">Último snapshot: {fmt(data?.updatedAt)} · Servidor base: {data?.world??"Jadebra"}</div>
     </main>
