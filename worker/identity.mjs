@@ -136,7 +136,20 @@ async function reconcileClusters(db,clusters,byId,edgeList){
     if(stale.length){const del=await db.from("identity_members").delete().eq("group_id",groupId).in("character_id",stale);if(del.error)throw del.error}
     const move=await db.from("identity_members").delete().in("character_id",ids).neq("group_id",groupId);if(move.error)throw move.error;
 
-    const rows=cs.map(ch=>{const support=internal.filter(e=>e.a===ch.id||e.b===ch.id),score=support.length?Math.max(...support.map(e=>e.strength)):1;return {group_id:groupId,character_id:ch.id,source:"AUTO_V5",confidence_score:score,notes:support.length?support.map(e=>e.kind+" "+e.matches+"m").join(" · "):"Ligação transitiva forte dentro do componente"}});
+    const rows=cs.map(ch=>{
+      const support=internal.filter(e=>e.a===ch.id||e.b===ch.id),score=support.length?Math.max(...support.map(e=>e.strength)):1;
+      const hasPublic=support.some(e=>e.kind==="PUBLIC_ACCOUNT");
+      const stalkerMatches=support.filter(e=>e.kind==="STALKER_MATCHES").map(e=>e.matches);
+      const bestStalker=stalkerMatches.length?Math.max(...stalkerMatches):0;
+      const notes=hasPublic&&bestStalker
+        ?"Conta pública + Tibia Stalker · "+bestStalker+" matches"
+        :hasPublic
+          ?"Mesma conta pública"
+          :bestStalker
+            ?"Tibia Stalker · "+bestStalker+" matches"
+            :"Ligação transitiva forte dentro do componente";
+      return {group_id:groupId,character_id:ch.id,source:"AUTO_V6",confidence_score:score,notes};
+    });
     if(rows.length){const up=await db.from("identity_members").upsert(rows,{onConflict:"character_id"});if(up.error)throw up.error}
   }
   const obsolete=existing.map(g=>g.id).filter(id=>!used.has(id));
