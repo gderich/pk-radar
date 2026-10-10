@@ -10,7 +10,15 @@ export default function BackgroundAlertBridge(){
     let worker:Worker|null=null;
     let currentToken="";
 
+    const remember=(alert:WorkerAlert)=>{
+      if(!alert.triggered_at)return;
+      localStorage.setItem("pkBackgroundAlertLastSeen",alert.triggered_at);
+      if(alert.title==="PK KILL DETECTADA")localStorage.setItem("pkKillAlertLastSeen",alert.triggered_at);
+      if(alert.title==="MASS LOG DETECTADO")localStorage.setItem("pkMassLogAlertLastSeen",alert.triggered_at);
+    };
     const notify=(alert:WorkerAlert)=>{
+      remember(alert);
+      if(!document.hidden)return;
       if(typeof Notification==="undefined"||Notification.permission!=="granted")return;
       try{
         const sticky=alert.title==="PK KILL DETECTADA"||alert.title==="MASS LOG DETECTADO"||alert.title==="SUSPEITO IDENTIFICADO";
