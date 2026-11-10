@@ -1,4 +1,4 @@
-const GUILD="https://guildstats.eu/character/";const RING="https://www.tibiaring.com/char.php?c=";const TIBIADATA="https://api.tibiadata.com/v4/character/";
+const GUILD="https://guildstats.eu/character/";const RING="https://www.tibiaring.com/char.php?c=";const TIBIADATA="https://api.tibiadata.com/v5/character/";
 function strip(html){return html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/\s+/g," ").trim()}
 function match(text,re){const m=text.match(re);return m?.[1]?.trim()||null}
 function parseDate(v){if(!v)return null;const m=v.match(/(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/);if(m)return new Date(Date.UTC(+m[3],+m[2]-1,+m[1],+m[4],+m[5])).toISOString();const d=new Date(v);return Number.isNaN(d.getTime())?null:d.toISOString()}

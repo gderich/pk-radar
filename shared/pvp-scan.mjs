@@ -1,6 +1,6 @@
 const WORLD="Jadebra";
-const WORLD_API="https://api.tibiadata.com/v4/world/";
-const CHAR_API="https://api.tibiadata.com/v4/character/";
+const WORLD_API="https://api.tibiadata.com/v5/world/";
+const CHAR_API="https://api.tibiadata.com/v5/character/";
 const UA="PK-Radar-KillScanner/7.0";
 const DEFAULT_BATCH=24;
 const RECENT_TTL=30*60*1000;
@@ -101,18 +101,18 @@ async function evaluateStoredWatchEvidence(db,active,confirmed,watch,nowIso){
 
 export async function scanPvpKills(db,{batchSize=DEFAULT_BATCH,minimumGapMs=0,caller="unknown"}={}){
   const now=Date.now(),nowIso=new Date(now).toISOString();
-  const [{data:targets,error:te},{data:sync,error:se}]=await Promise.all([
-    db.from("characters").select("id,name,tags,monitored,data_state,confidence,worlds(name)").eq("archived",false),
-    db.from("source_syncs").select("id,config,request_count").eq("source","TIBIADATA").maybeSingle()
-  ]);
-  if(te)throw te;if(se)throw se;
-
+  // Most requests arrive while another scan's result is still fresh.
+  // Read the small throttle record first, without downloading the full character list.
+  const {data:sync,error:se}=await db.from("source_syncs").select("id,config,request_count").eq("source","TIBIADATA").maybeSingle();
+  if(se)throw se;
   const cfg=sync?.config&&typeof sync.config==="object"?sync.config:{};
   const lastScanMs=new Date(cfg.kill_scan_last_scan_at||0).getTime();
   if(minimumGapMs>0&&Number.isFinite(lastScanMs)&&now-lastScanMs<minimumGapMs){
     return {ok:true,skipped:true,reason:"recent_scan",lastScanAt:cfg.kill_scan_last_scan_at||null,pool:Number(cfg.kill_scan_pool_size||0),scanned:0};
   }
 
+  const {data:targets,error:te}=await db.from("characters").select("id,name,tags,monitored,data_state,confidence,worlds(name)").eq("archived",false);
+  if(te)throw te;
   const active=(targets??[]).filter(x=>x.worlds?.name===WORLD&&(x.monitored||isWatch(x)));
   const confirmed=active.filter(isConfirmedPk);
   const watch=active.filter(isWatch);

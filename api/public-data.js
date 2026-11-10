@@ -7,9 +7,15 @@ function stalkerSpanDays(first,last){if(!first||!last)return 0;const a=new Date(
 function stalkerEvidence(matches,first,last){const m=Math.max(0,Number(matches||0)),span=stalkerSpanDays(first,last);const autoGroup=m>=100||(m>=50&&span>=7),autoDiscover=m>=80||(m>=30&&span>=7);const level=autoGroup?(m>=100?"MUITO FORTE":"FORTE"):autoDiscover?"MODERADA":m>=10?"FRACA":"INSUFICIENTE";const tone=autoGroup?"good":autoDiscover?"warn":"neutral";const internalStrength=autoGroup?(m>=100?95:85):autoDiscover?60:m>=10?30:10;return {matches:m,spanDays:span,autoGroup,autoDiscover,level,tone,internalStrength}}
 
 
-async function safe(query,fallback=[]){
+async function safe(query,fallback=[],critical=false){
   const r=await query;
-  if(r.error){console.warn("public-data query",r.error.message);return fallback}
+  // Only the core character query is fatal. Auxiliary data should not take
+  // the whole dashboard offline if one optional table becomes unavailable.
+  if(r.error){
+    console.warn("public-data query",r.error.message);
+    if(critical)throw new Error("Unable to read monitored characters: "+r.error.message);
+    return fallback;
+  }
   return r.data??fallback;
 }
 function externalMainFor(coreIds,allById,graph){
@@ -46,7 +52,7 @@ export default async function handler(req,res){
       onlineEvents,deathEvents,levelEvents,pvpEvents,
       sessions,alerts,sources
     ]=await Promise.all([
-      safe(db.from("characters").select("id,name,level,vocation,online,monitored,archived,tags,source,confidence,last_login_at,last_event_at,worlds(name),guilds(name)").eq("archived",false)),
+      safe(db.from("characters").select("id,name,level,vocation,online,monitored,archived,tags,source,confidence,last_login_at,last_event_at,worlds(name),guilds(name)").eq("archived",false),[],true),
       safe(db.from("identity_groups").select("id,label,confidence,notes,updated_at,identity_members(character_id,confidence_score,characters(id,name,level,vocation,online,tags,worlds(name),guilds(name)))").order("updated_at",{ascending:false})),
       safe(db.from("player_relations").select("character_a_id,character_b_id,status,manual_note,confidence_score").eq("status","CONFIRMED")),
       safe(db.from("stalker_suggestions").select("character_id,suggested_name,match_count,relative_score,first_match_date,last_match_date").order("match_count",{ascending:false}).limit(3000)),
@@ -191,6 +197,7 @@ export default async function handler(req,res){
     });
   }catch(e){
     console.error("public-data",e);
-    return res.status(500).json({error:"Não foi possível carregar a visualização pública."});
+    res.setHeader("Cache-Control","no-store");
+    return res.status(503).json({error:"Banco do PK Radar temporariamente indisponível. Os dados não foram apagados."});
   }
 }
