@@ -1,6 +1,20 @@
 export const STALKER_API="https://api.tibiastalker.pl";export const STALKER_WS="wss://api.tibiastalker.pl/connection-hub";export const TIBIADATA_API="https://api.tibiadata.com/v5";
 export async function getTibiaDataCharacter(name:string){const url=`${TIBIADATA_API}/character/${encodeURIComponent(name)}`;const r=await fetch(url,{headers:{accept:"application/json"}});if(!r.ok)throw new Error(`TibiaData HTTP ${r.status}`);return {url,data:await r.json()};}
-export async function getStalkerCharacter(name:string){const url=`${STALKER_API}/api/tibia-stalker/v1/characters/${encodeURIComponent(name)}`;const r=await fetch(url,{headers:{accept:"application/json"}});if(!r.ok)throw new Error(`Tibia Stalker HTTP ${r.status}`);return {url,data:await r.json()};}
+export async function getStalkerCharacter(name:string){
+  const url=`${STALKER_API}/api/tibia-stalker/v1/characters/${encodeURIComponent(name)}`;
+  // The browser calls our same-origin endpoint; the server fetches the public
+  // Tibia Stalker profile. This also avoids upstream browser CORS failures.
+  const endpoint="/api/stalker-character?name="+encodeURIComponent(name);
+  let r:Response;
+  try{r=await fetch(endpoint,{headers:{accept:"application/json"}})}
+  catch{throw new Error("Não foi possível acessar a consulta do PK Radar. Verifique a conexão e tente novamente.")}
+  const data=await r.json().catch(()=>({error:"Resposta inesperada do serviço de consulta."}));
+  if(!r.ok){
+    const reason=String(data?.error||"Tibia Stalker temporariamente indisponível");
+    throw new Error("Tibia Stalker HTTP "+r.status+": "+reason);
+  }
+  return {url,data};
+}
 export function findOnlineFlag(value:unknown):boolean|undefined{if(!value||typeof value!=="object")return undefined;if(Array.isArray(value)){for(const x of value){const found=findOnlineFlag(x);if(found!==undefined)return found}return undefined}for(const [k,v] of Object.entries(value as Record<string,unknown>)){if(k.toLowerCase()==="isonline"&&typeof v==="boolean")return v;const found=findOnlineFlag(v);if(found!==undefined)return found}return undefined}
 export type OnlineEvent={name:string;isOnline:boolean;hubEventId?:string;occurredOn?:string};
 export class StalkerRealtime{private ws:WebSocket|null=null;private names:string[]=[];private onEvent:(e:OnlineEvent)=>void;private onStatus:(s:string)=>void;private retry=0;private stopped=false;private reconnectTimer:number|null=null;constructor(onEvent:(e:OnlineEvent)=>void,onStatus:(s:string)=>void){this.onEvent=onEvent;this.onStatus=onStatus}
