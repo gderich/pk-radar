@@ -2,7 +2,7 @@
 // Browser-to-Stalker requests can fail with an opaque "Failed to fetch"
 // when the upstream server does not allow this site's origin.
 const BASE="https://api.tibiastalker.pl/api/tibia-stalker/v1/characters/";
-const VALID_NAME=/^[\\p{L}\\p{M}0-9 '\\-]{2,48}$/u;
+const VALID_NAME=/^[\p{L}\p{M}0-9 '-]{2,48}$/u;
 
 export default async function handler(req,res){
   if(req.method!=="GET"){
