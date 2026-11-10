@@ -9,7 +9,9 @@ function stalkerEvidence(matches,first,last){const m=Math.max(0,Number(matches||
 
 async function safe(query,fallback=[]){
   const r=await query;
-  if(r.error){console.warn("public-data query",r.error.message);return fallback}
+  // A failed database request is not an empty database. Propagate the failure
+  // so the UI does not quietly report zero monitored characters or alerts.
+  if(r.error)throw new Error("public-data query: "+r.error.message);
   return r.data??fallback;
 }
 function externalMainFor(coreIds,allById,graph){
@@ -191,6 +193,7 @@ export default async function handler(req,res){
     });
   }catch(e){
     console.error("public-data",e);
-    return res.status(500).json({error:"Não foi possível carregar a visualização pública."});
+    res.setHeader("Cache-Control","no-store");
+    return res.status(503).json({error:"Banco do PK Radar temporariamente indisponível. Os dados não foram apagados."});
   }
 }
