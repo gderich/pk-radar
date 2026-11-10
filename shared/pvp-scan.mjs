@@ -1,6 +1,6 @@
 const WORLD="Jadebra";
-const WORLD_API="https://api.tibiadata.com/v4/world/";
-const CHAR_API="https://api.tibiadata.com/v4/character/";
+const WORLD_API="https://api.tibiadata.com/v5/world/";
+const CHAR_API="https://api.tibiadata.com/v5/character/";
 const UA="PK-Radar-KillScanner/7.0";
 const DEFAULT_BATCH=24;
 const RECENT_TTL=30*60*1000;
