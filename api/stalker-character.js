@@ -31,8 +31,8 @@ export default async function handler(req,res){
       });
     }
     const data=await response.json();
-    // Short CDN caching avoids duplicating upstream lookups across browser tabs.
-    res.setHeader("Cache-Control","public, s-maxage=15, stale-while-revalidate=30");
+    // One-minute CDN caching avoids duplicate lookups and upstream rate limits across tabs.
+    res.setHeader("Cache-Control","public, s-maxage=60, stale-while-revalidate=60");
     return res.status(200).json(data);
   }catch(error){
     res.setHeader("Cache-Control","no-store");
