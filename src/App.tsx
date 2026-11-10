@@ -61,7 +61,45 @@ function AutoIdentitySync(){useEffect(()=>{let stopped=false;let busy=false;let 
 function WorldHydrator(){useEffect(()=>{let stopped=false;let timer:number|undefined;const run=async()=>{if(stopped)return;let nextDelay=60000;try{const pending=await hydratePendingWorlds(1);nextDelay=pending>0?10000:60000}catch(e){console.warn("World hydrator",e);nextDelay=15000}finally{if(!stopped)timer=window.setTimeout(()=>void run(),nextDelay)}};timer=window.setTimeout(()=>void run(),1200);return()=>{stopped=true;if(timer!==undefined)window.clearTimeout(timer)}},[]);return null}
 function AccountMainSync(){useEffect(()=>{let stopped=false;let busy=false;let cursor=Number(localStorage.getItem("accountMainCursor")||0);const run=async()=>{if(stopped||busy)return;busy=true;try{const list=await characters();if(!list.length)return;const ch=list[cursor%list.length];cursor=(cursor+1)%list.length;localStorage.setItem("accountMainCursor",String(cursor));await syncPublicAccountLinks(ch,2)}catch(e){console.warn("Account main sync",e)}finally{busy=false}};const first=window.setTimeout(()=>void run(),6000);const timer=window.setInterval(()=>void run(),60000);return()=>{stopped=true;window.clearTimeout(first);window.clearInterval(timer)}},[]);return null}
 function WorldOnlineSync(){useEffect(()=>{let stopped=false;let busy=false;let initialized=false;const run=async()=>{if(stopped||busy)return;busy=true;try{await reconcileOnlineSnapshot(initialized);initialized=true}catch(e){console.warn("Online snapshot reconcile",e)}finally{busy=false}};const first=window.setTimeout(()=>void run(),500);const timer=window.setInterval(()=>void run(),60000);return()=>{stopped=true;window.clearTimeout(first);window.clearInterval(timer)}},[]);return null}
-function ActiveStalkerStatusSweep(){useEffect(()=>{let stopped=false;let busy=false;let cursor=0;let cached:Character[]=[];let cachedAt=0;const sleep=(ms:number)=>new Promise(r=>window.setTimeout(r,ms));const run=async()=>{if(stopped||busy)return;const blocked=Number(localStorage.getItem("stalkerOnline429Until")||0);if(Date.now()<blocked)return;busy=true;try{const now=Date.now();const list=(cached.length&&now-cachedAt<60000)?cached:await characters();if(list!==cached){cached=list;cachedAt=now}if(!list.length)return;const batch=[] as Character[];for(let i=0;i<Math.min(3,list.length);i++)batch.push(list[(cursor+i)%list.length]);cursor=(cursor+batch.length)%list.length;for(const ch of batch){try{const r=await getStalkerCharacter(ch.name);const flag=findOnlineFlag(r.data);if(flag!==undefined)await updateOnline(ch.name,flag,new Date().toISOString(),"TIBIA_STALKER")}catch(e){const msg=e instanceof Error?e.message:String(e);if(msg.includes("429")){localStorage.setItem("stalkerOnline429Until",String(Date.now()+60000));break}console.debug("Status sweep",ch.name,msg)}await sleep(180)}}finally{busy=false}};const first=window.setTimeout(()=>void run(),1000);const timer=window.setInterval(()=>void run(),4000);return()=>{stopped=true;window.clearTimeout(first);window.clearInterval(timer)}},[]);return null}
+function ActiveStalkerStatusSweep(){
+  const location=useLocation();
+  useEffect(()=>{
+    // The dashboard already maintains its own WebSocket connection.
+    if(location.pathname.startsWith("/dashboard"))return;
+    let stopped=false;
+    let busy=false;
+    let realtime:StalkerRealtime|null=null;
+    let subscribed="";
+    const refresh=async()=>{
+      if(stopped||busy)return;
+      busy=true;
+      try{
+        const list=await characters();
+        if(stopped)return;
+        const names=list.map(c=>c.name);
+        const nextKey=[...names].sort().join("|");
+        if(nextKey!==subscribed){
+          subscribed=nextKey;
+          if(!realtime){
+            realtime=new StalkerRealtime(
+              async event=>{
+                try{await updateOnline(event.name,event.isOnline,event.occurredOn||new Date().toISOString())}
+                catch(error){console.warn("Realtime status update",error)}
+              },
+              status=>{if(status==="erro")console.warn("Tibia Stalker realtime desconectado; fallback por TibiaData permanece ativo")}
+            );
+            realtime.start(names);
+          }else realtime.updateNames(names);
+        }
+      }catch(error){console.warn("Realtime character subscription",error)}
+      finally{busy=false}
+    };
+    void refresh();
+    const timer=window.setInterval(()=>void refresh(),60000);
+    return()=>{stopped=true;window.clearInterval(timer);realtime?.stop()};
+  },[location.pathname.startsWith("/dashboard")]);
+  return null;
+}
 async function syncPvpWatch(){const {data}=await supabase.auth.getSession();const token=data.session?.access_token;if(!token)throw new Error("Sessão expirada");const r=await fetch("/api/pvp-watch",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+token},body:"{}"});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||("PvP watch HTTP "+r.status));return j}
 function PvpKillWatch(){useEffect(()=>{let stopped=false;let busy=false;const run=async()=>{if(stopped||busy)return;busy=true;try{await syncPvpWatch()}catch(e){console.warn("PvP kill watch",e)}finally{busy=false}};const first=window.setTimeout(()=>void run(),2500);const timer=window.setInterval(()=>void run(),10000);return()=>{stopped=true;window.clearTimeout(first);window.clearInterval(timer)}},[]);return null}
 let massLogAudio:AudioContext|null=null;
